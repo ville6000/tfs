@@ -32,7 +32,9 @@ func TestWorkItemListAndConfig(t *testing.T) {
 	defer srv.Close()
 
 	t.Chdir(t.TempDir())
-	t.Setenv("HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // os.UserHomeDir on Windows
 	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("TFS_PAT", "x")
 	t.Setenv("TFS_ALLOW_INSECURE", "1")

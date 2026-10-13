@@ -3,17 +3,20 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
 func envMap(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
 
 func TestGlobalCandidates(t *testing.T) {
-	got := GlobalCandidates(envMap(map[string]string{EnvXDGConfigHome: "/x"}), "/h")
-	if len(got) != 2 || got[0] != "/x/tfs/config.json" || got[1] != "/h/.config/tfs/config.json" {
-		t.Errorf("got %v", got)
+	xdg, home := t.TempDir(), t.TempDir() // absolute on every OS
+	got := GlobalCandidates(envMap(map[string]string{EnvXDGConfigHome: xdg}), home)
+	want := []string{filepath.Join(xdg, "tfs", "config.json"), filepath.Join(home, ".config", "tfs", "config.json")}
+	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("got %v, want %v", got, want)
 	}
-	got = GlobalCandidates(envMap(map[string]string{EnvXDGConfigHome: "rel"}), "/h")
+	got = GlobalCandidates(envMap(map[string]string{EnvXDGConfigHome: "rel"}), home)
 	if len(got) != 1 {
 		t.Errorf("relative XDG must be ignored: %v", got)
 	}
@@ -59,8 +62,12 @@ func TestLayeringAndWrites(t *testing.T) {
 	}
 
 	st, err := os.Stat(path)
-	if err != nil || st.Mode().Perm() != 0o600 {
-		t.Errorf("mode = %v, %v", st.Mode().Perm(), err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Windows has no Unix permission bits.
+	if runtime.GOOS != "windows" && st.Mode().Perm() != 0o600 {
+		t.Errorf("mode = %v", st.Mode().Perm())
 	}
 
 	c, err = LoadFrom(sub, home, env)

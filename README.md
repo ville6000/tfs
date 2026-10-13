@@ -21,8 +21,8 @@ enter details • o open in browser • s set state • a assign to me • w wor
 
 - **Work items** — list, filter, show (description, acceptance criteria, comments rendered as
   Markdown), create, update state/title/assignee, comment, open in the browser.
-- **Hierarchy tree** — Epic → Feature → Story → Task, collapsible, with ancestors of matches kept
-  visible so the tree stays connected.
+- **Hierarchy tree** — Epic → Feature → Story → Task with assignees, collapsible, with ancestors of
+  matches kept visible so the tree stays connected.
 - **Pull requests** — list with approval status, view details and reviewers, open, check out the
   source branch or create a worktree for review, open the create-PR page for the current branch.
 - **Worktrees** — `tfs wi worktree 123` creates a branch named after the work item and a git

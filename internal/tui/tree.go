@@ -300,6 +300,29 @@ func (t *TreeView) Update(msg tea.Msg) (Screen, tea.Cmd) {
 	return t, nil
 }
 
+// assigneeColumn returns where the assignee column starts: two cells after the longest label,
+// pulled left when needed so the widest assignee still fits. 0 means there is no room for it.
+func (t *TreeView) assigneeColumn(lefts []string) int {
+	col, widest := 0, 0
+	for i, e := range t.entries {
+		if e.node == nil {
+			continue
+		}
+		if a := output.TreeAssignee(e.node); a != "" {
+			widest = max(widest, ansi.StringWidth(a))
+		}
+		col = max(col, ansi.StringWidth(lefts[i]))
+	}
+	if widest == 0 {
+		return 0
+	}
+	col = min(col+2, t.width-widest)
+	if col < 30 { // too narrow: keep the titles readable instead
+		return 0
+	}
+	return col
+}
+
 func (t *TreeView) View() string {
 	if t.err != nil {
 		return ui.Danger.Render(t.err.Error())
@@ -310,10 +333,9 @@ func (t *TreeView) View() string {
 	if len(t.entries) == 0 {
 		return ui.Muted.Render("  No work items match.")
 	}
-	var b strings.Builder
-	end := min(len(t.entries), t.offset+t.height)
-	for i := t.offset; i < end; i++ {
-		e := t.entries[i]
+	// Labels for every entry (not just visible ones) so the column does not jump while scrolling.
+	lefts := make([]string, len(t.entries))
+	for i, e := range t.entries {
 		marker := "  "
 		if i == t.cursor {
 			marker = ui.Accent.Render("▌ ")
@@ -337,7 +359,22 @@ func (t *TreeView) View() string {
 		if t.collapsed[e.key] && e.children > 0 {
 			label += ui.Muted.Render(" (+" + strconv.Itoa(e.children) + ")")
 		}
-		line := marker + ui.Muted.Render(e.prefix) + ui.Accent.Render(toggle) + label
+		lefts[i] = marker + ui.Muted.Render(e.prefix) + ui.Accent.Render(toggle) + label
+	}
+	col := t.assigneeColumn(lefts)
+
+	var b strings.Builder
+	end := min(len(t.entries), t.offset+t.height)
+	for i := t.offset; i < end; i++ {
+		line := lefts[i]
+		var assignee string
+		if e := t.entries[i]; e.node != nil && col > 0 {
+			assignee = output.TreeAssignee(e.node)
+		}
+		if assignee != "" {
+			line = ansi.Truncate(line, col-2, "…")
+			line += strings.Repeat(" ", col-ansi.StringWidth(line)) + assignee
+		}
 		b.WriteString(ansi.Truncate(line, t.width, "…") + "\n")
 	}
 	return strings.TrimRight(b.String(), "\n")

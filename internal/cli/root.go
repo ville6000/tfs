@@ -150,7 +150,20 @@ func (a *App) actions() *tui.Actions {
 		CheckoutPR: func(ctx context.Context, pr domain.PullRequest, worktree bool) (string, error) {
 			return a.checkoutPullRequest(ctx, pr, worktree, "")
 		},
+		Team: a.team,
 	}
+}
+
+// team returns the configured team, or the project's default team.
+func (a *App) team(ctx context.Context, project string) (string, error) {
+	cfg, err := a.config()
+	if err != nil {
+		return "", err
+	}
+	if t := cfg.String("team"); t != "" {
+		return t, nil
+	}
+	return a.client.DefaultTeam(ctx, project)
 }
 
 func (a *App) printf(format string, args ...any) { fmt.Fprintf(a.out, format, args...) }

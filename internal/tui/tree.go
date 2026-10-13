@@ -2,6 +2,8 @@ package tui
 
 import (
 	"context"
+	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -20,7 +22,17 @@ var (
 	keyToggle      = key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "toggle"))
 	keyExpandAll   = key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "expand all"))
 	keyCollapseAll = key.NewBinding(key.WithKeys("z"), key.WithHelp("z", "collapse all"))
+	keyMoveUp      = key.NewBinding(key.WithKeys("K", "shift+up"), key.WithHelp("K/⇧↑", "move up"))
+	keyMoveDown    = key.NewBinding(key.WithKeys("J", "shift+down"), key.WithHelp("J/⇧↓", "move down"))
 )
+
+// reorderDoneMsg reports the result of saving one item's backlog position.
+type reorderDoneMsg struct {
+	screen int64
+	id     int
+	orders map[int]float64
+	err    error
+}
 
 type treeLoadedMsg struct {
 	screen int64
@@ -53,6 +65,11 @@ type TreeView struct {
 	width     int
 	height    int
 	err       error
+
+	// Moves are applied locally at once and saved one at a time in this order, so quick
+	// repeated presses reach the server in sequence and the last position wins.
+	pendingMoves []int
+	saving       bool
 }
 
 // NewTreeView creates a tree screen.
@@ -141,7 +158,7 @@ func (t *TreeView) SetSize(w, h int) {
 }
 
 func (t *TreeView) Help() []key.Binding {
-	return []key.Binding{keyEnter, keyNewChild, keyOpen, keyCollapse, keyExpand, keyToggle, keyState, keyAssign, keyWorktree,
+	return []key.Binding{keyEnter, keyNewChild, keyMoveUp, keyMoveDown, keyOpen, keyCollapse, keyExpand, keyToggle, keyState, keyAssign, keyWorktree,
 		keyCopy, keyExpandAll, keyCollapseAll, keyRefresh, keyUp, keyDown, keyPgUp, keyPgDown}
 }
 
@@ -180,6 +197,62 @@ func replaceItem(nodes []*domain.TreeNode, w domain.WorkItem) {
 	}
 }
 
+// move shifts w one place among its siblings and queues saving the new position.
+func (t *TreeView) move(w domain.WorkItem, delta int) tea.Cmd {
+	if !t.tree.Ordered {
+		return Status("reordering needs the project tree in backlog order (run `tfs wi tree` without an id)")
+	}
+	nodes, orphans, ok := t.tree.Siblings(w.ID)
+	if !ok {
+		return nil
+	}
+	if _, err := domain.MoveSibling(nodes, w.ID, delta, orphans); err != nil {
+		return Status(fmt.Sprintf("#%d is %s", w.ID, err))
+	}
+	t.flatten()
+	if !slices.Contains(t.pendingMoves, w.ID) {
+		t.pendingMoves = append(t.pendingMoves, w.ID)
+	}
+	return t.saveNext()
+}
+
+// saveNext sends the next queued move, computing its neighbours from the current local order.
+func (t *TreeView) saveNext() tea.Cmd {
+	if t.saving || len(t.pendingMoves) == 0 {
+		return nil
+	}
+	id := t.pendingMoves[0]
+	t.pendingMoves = t.pendingMoves[1:]
+	nodes, orphans, ok := t.tree.Siblings(id)
+	if !ok {
+		return t.saveNext()
+	}
+	op, err := domain.ReorderPlan(nodes, id, orphans)
+	if err != nil {
+		return t.saveNext()
+	}
+	var project string
+	for _, n := range nodes {
+		if n.Item.ID == id {
+			project = n.Item.Project
+		}
+	}
+	t.saving = true
+	return Busy("saving order", func() tea.Msg {
+		orders, err := t.act.reorder(context.Background(), project, op)
+		return reorderDoneMsg{screen: t.id, id: id, orders: orders, err: err}
+	})
+}
+
+func setOrders(nodes []*domain.TreeNode, orders map[int]float64) {
+	for _, n := range nodes {
+		if o, ok := orders[n.Item.ID]; ok {
+			n.Item.Order = o
+		}
+		setOrders(n.Children, orders)
+	}
+}
+
 // addChild inserts item under every node with id parentID; it reports whether one was found.
 func addChild(nodes []*domain.TreeNode, parentID int, item domain.WorkItem) bool {
 	found := false
@@ -215,6 +288,24 @@ func (t *TreeView) Update(msg tea.Msg) (Screen, tea.Cmd) {
 			replaceItem(t.tree.Orphans, msg.item)
 		}
 		return t, nil
+	case reorderDoneMsg:
+		if msg.screen != t.id {
+			return t, nil
+		}
+		t.saving = false
+		if msg.err != nil {
+			// Resync with the server rather than guess which local moves were saved.
+			t.pendingMoves = nil
+			return t, tea.Batch(StatusErr(msg.err), t.reload())
+		}
+		if t.tree != nil {
+			setOrders(t.tree.Roots, msg.orders)
+			setOrders(t.tree.Orphans, msg.orders)
+		}
+		if next := t.saveNext(); next != nil {
+			return t, next
+		}
+		return t, Status("backlog order saved")
 	case workItemCreatedMsg:
 		if t.tree == nil {
 			return t, nil
@@ -284,6 +375,10 @@ func (t *TreeView) Update(msg tea.Msg) (Screen, tea.Cmd) {
 			return t, Push(NewWorkItemDetail(t.act, w.ID))
 		case key.Matches(msg, keyNewChild):
 			return t, t.act.newChild(w)
+		case key.Matches(msg, keyMoveUp):
+			return t, t.move(w, -1)
+		case key.Matches(msg, keyMoveDown):
+			return t, t.move(w, 1)
 		case key.Matches(msg, keyOpen):
 			return t, t.act.open(w.URL)
 		case key.Matches(msg, keyCopy):

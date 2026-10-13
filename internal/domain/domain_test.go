@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -251,5 +252,80 @@ func TestChildTypeOptions(t *testing.T) {
 	}
 	if got := ChildTypeOptions(nil, "Feature"); got[0] != "User Story" || len(got) != len(FallbackTypes) {
 		t.Errorf("fallback: %v", got)
+	}
+}
+
+func ids(nodes []*TreeNode) string {
+	var s []string
+	for _, n := range nodes {
+		s = append(s, strconv.Itoa(n.Item.ID))
+	}
+	return strings.Join(s, ",")
+}
+
+func TestForestUsesBacklogOrder(t *testing.T) {
+	tree := BuildForest([]WorkItem{
+		{ID: 1, Type: "Epic", Order: 30},
+		{ID: 2, Type: "Epic", Order: 10},
+		{ID: 3, Type: "Epic"}, // unranked: last
+		{ID: 4, Type: "Epic", Order: 20},
+	}, NewFilter(nil, nil, nil, nil))
+	if got := ids(tree.Roots); got != "2,4,1,3" {
+		t.Errorf("roots = %s", got)
+	}
+}
+
+func TestMoveSibling(t *testing.T) {
+	mk := func(id, parent int, typ string) *TreeNode {
+		return &TreeNode{Item: WorkItem{ID: id, ParentID: parent, Type: typ}}
+	}
+	nodes := []*TreeNode{mk(1, 9, "Task"), mk(2, 9, "Task"), mk(3, 9, "Task")}
+
+	op, err := MoveSibling(nodes, 3, -1, false)
+	if err != nil || ids(nodes) != "1,3,2" {
+		t.Fatalf("move up: %s %v", ids(nodes), err)
+	}
+	if op.ParentID != 9 || op.PreviousID != 1 || op.NextID != 2 || op.IDs[0] != 3 {
+		t.Errorf("op = %+v", op)
+	}
+	op, _ = MoveSibling(nodes, 3, -1, false)
+	if ids(nodes) != "3,1,2" || op.PreviousID != 0 || op.NextID != 1 {
+		t.Errorf("to top: %s %+v", ids(nodes), op)
+	}
+	if _, err := MoveSibling(nodes, 3, -1, false); err == nil {
+		t.Error("moving the first item up should fail")
+	}
+	op, _ = MoveSibling(nodes, 1, 1, false)
+	if ids(nodes) != "3,2,1" || op.PreviousID != 2 || op.NextID != 0 {
+		t.Errorf("to bottom: %s %+v", ids(nodes), op)
+	}
+
+	// The "No parent" group only reorders among the same type, skipping others in between.
+	mixed := []*TreeNode{mk(1, 0, "Bug"), mk(2, 0, "Feature"), mk(3, 0, "Bug")}
+	op, err = MoveSibling(mixed, 3, -1, true)
+	if err != nil || ids(mixed) != "3,1,2" || op.PreviousID != 0 || op.NextID != 1 {
+		t.Errorf("mixed: %s %+v %v", ids(mixed), op, err)
+	}
+	if _, err := MoveSibling(mixed, 2, 1, true); err == nil {
+		t.Error("the only Feature has no peer to move past")
+	}
+}
+
+func TestTreeSiblings(t *testing.T) {
+	tree := BuildForest([]WorkItem{
+		{ID: 1, Type: "Epic"}, {ID: 2, Type: "Feature", ParentID: 1}, {ID: 3, Type: "Feature", ParentID: 1},
+		{ID: 4, Type: "Bug"}, {ID: 5, Type: "Task", ParentID: 4},
+	}, NewFilter(nil, nil, nil, nil))
+	if ns, orphan, ok := tree.Siblings(3); !ok || orphan || ids(ns) != "2,3" {
+		t.Errorf("children: %s %v %v", ids(ns), orphan, ok)
+	}
+	if ns, orphan, _ := tree.Siblings(4); !orphan || ids(ns) != "4" {
+		t.Errorf("orphan: %s %v", ids(ns), orphan)
+	}
+	if ns, orphan, _ := tree.Siblings(5); orphan || ids(ns) != "5" {
+		t.Errorf("orphan child: %s %v", ids(ns), orphan)
+	}
+	if _, _, ok := tree.Siblings(99); ok {
+		t.Error("unknown id")
 	}
 }

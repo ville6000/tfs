@@ -21,8 +21,9 @@ enter details • o open in browser • s set state • a assign to me • w wor
 
 - **Work items** — list, filter, show (description, acceptance criteria, comments rendered as
   Markdown), create, update state/title/assignee, comment, open in the browser.
-- **Hierarchy tree** — Epic → Feature → Story → Task with assignees, collapsible, with ancestors of
-  matches kept visible so the tree stays connected.
+- **Hierarchy tree** — Epic → Feature → Story → Task in backlog order with assignees, collapsible;
+  reorder items and the new order is saved to the server. Ancestors of matches stay visible so the
+  tree stays connected.
 - **Pull requests** — list with approval status, view details and reviewers, open, check out the
   source branch or create a worktree for review, open the create-PR page for the current branch.
 - **Worktrees** — `tfs wi worktree 123` creates a branch named after the work item and a git
@@ -96,6 +97,12 @@ In the tree, press `i` on an item to create a child under it. The type is presel
 process (Epic → Feature → User Story / Product Backlog Item / Requirement → Task), and the new
 item appears in place.
 
+The project tree lists siblings in backlog order, like the web backlog. Press `K`/`J` (or
+`shift+↑`/`shift+↓`) to move an item up or down among its siblings; the new order is saved to
+the server, so it shows on the web backlog too. Reordering uses the backlog of the project's
+default team (set `team` to use another) and needs Azure DevOps Server 2020 or later. Items
+hidden by filters (closed items, by default) are skipped when moving.
+
 By default lists and the project tree hide `Closed` and `Removed` items; the tree also hides
 Test Cases, Plans and Suites unless you ask for them with `--type`.
 
@@ -136,6 +143,7 @@ Lists, the tree, and detail views are interactive when stdin and stdout are a te
 | `/`            | filter (lists)                          |
 | `enter`        | details                                 |
 | `i`            | new child of the selected work item (tree, details) |
+| `K`/`J`, `shift+↑`/`shift+↓` | move up / down in the backlog (tree) |
 | `o`            | open in browser                         |
 | `y`            | copy URL to clipboard                   |
 | `s`            | set state (work items)                  |
@@ -175,6 +183,7 @@ pass `--global` to write to the global file. Config files are written with mode 
 |--------------------|-----------------------|---------------------------------------------------------------|
 | `collectionUrl`    | —                     | e.g. `https://ado.example.com/DefaultCollection` (required)   |
 | `defaultProject`   | —                     | project used when `--project` is omitted                      |
+| `team`             | project default team  | team whose backlog order `wi tree` shows and changes           |
 | `apiVersion`       | `6.0`                 | REST API version (`5.0` for Azure DevOps Server 2019)          |
 | `userIdentity`     | —                     | what `@me` resolves to when assigning (global only); otherwise asked from the server |
 | `defaultType`      | `Task`                | type for `wi create` when `--type` is omitted                 |

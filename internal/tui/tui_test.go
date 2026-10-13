@@ -2,6 +2,8 @@ package tui
 
 import (
 	"context"
+	"errors"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -210,5 +212,74 @@ func TestTreeAssigneeColumn(t *testing.T) {
 	tv.SetSize(30, 10)
 	if strings.Contains(ansi.Strip(tv.View()), "Alice") {
 		t.Errorf("assignee should be dropped when too narrow:\n%s", ansi.Strip(tv.View()))
+	}
+}
+
+func orderedTree() domain.Tree {
+	tree := domain.BuildForest([]domain.WorkItem{
+		{ID: 1, Type: "Epic", Title: "A", Order: 10, Project: "P"},
+		{ID: 2, Type: "Epic", Title: "B", Order: 20, Project: "P"},
+		{ID: 3, Type: "Epic", Title: "C", Order: 30, Project: "P"},
+	}, domain.NewFilter(nil, nil, nil, nil))
+	tree.Ordered = true
+	return tree
+}
+
+func entryIDs(tv *TreeView) string {
+	var s []string
+	for _, e := range tv.entries {
+		s = append(s, strconv.Itoa(e.key))
+	}
+	return strings.Join(s, ",")
+}
+
+func TestTreeMoveQueuesSaves(t *testing.T) {
+	tv := NewTreeView("t", &Actions{}, nil)
+	tv.SetSize(80, 20)
+	tv.Update(treeLoadedMsg{screen: tv.id, tree: orderedTree()})
+	tv.Update(press("G")) // #3
+
+	if _, cmd := tv.Update(press("K")); cmd == nil || entryIDs(tv) != "1,3,2" || !tv.saving {
+		t.Fatalf("K: %s saving=%v", entryIDs(tv), tv.saving)
+	}
+	if sel, _ := tv.selected(); sel.ID != 3 {
+		t.Errorf("selection should follow the moved item, got #%d", sel.ID)
+	}
+	// A second move while the first is saving is applied locally and queued.
+	tv.Update(tea.KeyPressMsg{Code: tea.KeyUp, Mod: tea.ModShift})
+	if entryIDs(tv) != "3,1,2" || len(tv.pendingMoves) != 1 {
+		t.Fatalf("shift+up: %s pending=%v", entryIDs(tv), tv.pendingMoves)
+	}
+	// First save completes: its order is recorded and the queued move is sent next.
+	tv.Update(reorderDoneMsg{screen: tv.id, id: 3, orders: map[int]float64{3: 15}})
+	if !tv.saving || len(tv.pendingMoves) != 0 || tv.tree.Roots[0].Item.Order != 15 {
+		t.Fatalf("after first save: saving=%v pending=%v order=%v", tv.saving, tv.pendingMoves, tv.tree.Roots[0].Item.Order)
+	}
+	tv.Update(reorderDoneMsg{screen: tv.id, id: 3, orders: map[int]float64{3: 5}})
+	if tv.saving {
+		t.Error("queue should be drained")
+	}
+
+	tv.Update(press("J"))
+	if entryIDs(tv) != "1,3,2" {
+		t.Errorf("J: %s", entryIDs(tv))
+	}
+	tv.Update(press("J"))
+	tv.Update(reorderDoneMsg{screen: tv.id, id: 3, err: errors.New("boom")})
+	if tv.saving || len(tv.pendingMoves) != 0 {
+		t.Errorf("error should clear the queue: saving=%v pending=%v", tv.saving, tv.pendingMoves)
+	}
+}
+
+func TestTreeMoveNeedsBacklogOrder(t *testing.T) {
+	tv := NewTreeView("t", &Actions{}, nil)
+	tv.SetSize(80, 20)
+	tree := orderedTree()
+	tree.Ordered = false
+	tv.Update(treeLoadedMsg{screen: tv.id, tree: tree})
+	tv.Update(press("j"))
+	tv.Update(press("K"))
+	if entryIDs(tv) != "1,2,3" || tv.saving {
+		t.Errorf("unordered tree must not move: %s", entryIDs(tv))
 	}
 }

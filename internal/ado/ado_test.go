@@ -214,3 +214,47 @@ func TestTypeCategories(t *testing.T) {
 		t.Errorf("path %s", p)
 	}
 }
+
+func TestBacklogOrdering(t *testing.T) {
+	c, reqs := server(t, func(r *http.Request, _ string) (int, any) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/backlogconfiguration"):
+			return 200, map[string]any{"backlogFields": map[string]any{"typeFields": map[string]string{"Order": "Microsoft.VSTS.Common.BacklogPriority"}}}
+		case strings.Contains(r.URL.Path, "/_apis/projects/"):
+			return 200, map[string]any{"defaultTeam": map[string]string{"name": "P Team"}}
+		case strings.HasSuffix(r.URL.Path, "/workitemsorder"):
+			return 200, map[string]any{"count": 1, "value": []map[string]any{{"id": 3, "order": 1500.5}}}
+		case strings.HasSuffix(r.URL.Path, "/wiql"):
+			return 200, map[string]any{"workItems": []map[string]int{{"id": 3}}}
+		}
+		return 200, map[string]any{"value": []any{map[string]any{"id": 3, "fields": map[string]any{"Microsoft.VSTS.Common.BacklogPriority": 2.5e9}}}}
+	})
+	ctx := context.Background()
+	field, err := c.BacklogOrderField(ctx, "P", "")
+	if err != nil || field != "Microsoft.VSTS.Common.BacklogPriority" {
+		t.Fatalf("field %q %v", field, err)
+	}
+	if p := (*reqs)[0].Path; p != "/Col/P/_apis/work/backlogconfiguration" {
+		t.Errorf("config path %s", p)
+	}
+	team, err := c.DefaultTeam(ctx, "P")
+	if err != nil || team != "P Team" {
+		t.Fatalf("team %q %v", team, err)
+	}
+	items, err := c.ListWorkItems(ctx, domain.WorkItemQuery{Project: "P", Top: 1, OrderField: field})
+	if err != nil || items[0].Order != 2.5e9 {
+		t.Fatalf("order %+v %v", items, err)
+	}
+	if q := (*reqs)[3].Query; !strings.Contains(q, "Microsoft.VSTS.Common.BacklogPriority") {
+		t.Errorf("batch should request the order field: %s", q)
+	}
+	orders, err := c.ReorderWorkItems(ctx, "P", "P Team", domain.ReorderOp{IDs: []int{3}, ParentID: 1, PreviousID: 2, NextID: 0})
+	if err != nil || orders[3] != 1500.5 {
+		t.Fatalf("reorder %v %v", orders, err)
+	}
+	r := (*reqs)[4]
+	if r.Method != "PATCH" || r.Path != "/Col/P/P Team/_apis/work/workitemsorder" || !strings.Contains(r.Query, "6.0-preview.1") ||
+		strings.TrimSpace(r.Body) != `{"ids":[3],"parentId":1,"previousId":2,"nextId":0}` {
+		t.Errorf("reorder request: %+v", r)
+	}
+}

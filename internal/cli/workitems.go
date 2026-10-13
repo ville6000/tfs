@@ -173,12 +173,20 @@ Test Case, Test Plan and Test Suite are hidden unless requested with --type.`,
 				if err := q.Validate(); err != nil {
 					return err
 				}
+				cfg, _ := a.config()
 				load = func(ctx context.Context) (domain.Tree, error) {
+					// Siblings follow the backlog order when the server reports which field holds
+					// it; otherwise they fall back to id order and cannot be reordered.
+					if q.OrderField == "" {
+						q.OrderField, _ = client.BacklogOrderField(ctx, project, cfg.String("team"))
+					}
 					items, err := client.ListHierarchy(ctx, q)
 					if err != nil {
 						return domain.Tree{}, err
 					}
-					return domain.BuildForest(items, filter), nil
+					tree := domain.BuildForest(items, filter)
+					tree.Ordered = q.OrderField != ""
+					return tree, nil
 				}
 			}
 			if a.interactive() {

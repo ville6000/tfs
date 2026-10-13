@@ -155,3 +155,21 @@ func TestAppStackAndBroadcast(t *testing.T) {
 		t.Errorf("view:\n%s", view)
 	}
 }
+
+func TestTreeInsertsCreatedChild(t *testing.T) {
+	tv := NewTreeView("t", &Actions{}, nil)
+	tv.SetSize(80, 20)
+	tv.Update(treeLoadedMsg{screen: tv.id, tree: sampleTree()})
+	tv.Update(press("z")) // collapse everything; creation must expand the parent
+	tv.Update(workItemCreatedMsg{item: domain.WorkItem{ID: 9, Type: "Feature", Title: "New"}, parentID: 1})
+	sel, ok := tv.selected()
+	if !ok || sel.ID != 9 {
+		t.Fatalf("new child should be selected, got %+v", sel)
+	}
+	if tv.collapsed[1] {
+		t.Error("parent should be expanded")
+	}
+	if !strings.Contains(ansi.Strip(tv.View()), "#9 Feature") {
+		t.Errorf("view:\n%s", ansi.Strip(tv.View()))
+	}
+}

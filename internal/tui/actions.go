@@ -3,6 +3,8 @@ package tui
 import (
 	"context"
 	"fmt"
+	"strings"
+	"sync"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -16,10 +18,19 @@ type Actions struct {
 	Open       func(url string) error
 	Worktree   func(ctx context.Context, w domain.WorkItem) (branch, path string, err error)
 	CheckoutPR func(ctx context.Context, pr domain.PullRequest, worktree bool) (string, error)
+
+	mu         sync.Mutex
+	categories map[string][]domain.TypeCategory // per project
 }
 
 // workItemChangedMsg announces an updated work item to every screen.
 type workItemChangedMsg struct{ item domain.WorkItem }
+
+// workItemCreatedMsg announces a new work item created as a child of parentID.
+type workItemCreatedMsg struct {
+	item     domain.WorkItem
+	parentID int
+}
 
 // commentAddedMsg announces a new comment on a work item.
 type commentAddedMsg struct{ id int }
@@ -122,5 +133,64 @@ func (a *Actions) checkout(pr domain.PullRequest, worktree bool) tea.Cmd {
 			return StatusMsg{Text: err.Error(), Err: true}
 		}
 		return StatusMsg{Text: msg}
+	})
+}
+
+// childTypes returns the types offered for a new child of parent, most likely first. Categories
+// are fetched once per project; when they cannot be read a generic list is used.
+func (a *Actions) childTypes(ctx context.Context, parent domain.WorkItem) []string {
+	a.mu.Lock()
+	cats, ok := a.categories[parent.Project]
+	a.mu.Unlock()
+	if !ok {
+		var err error
+		if cats, err = a.Client.TypeCategories(ctx, parent.Project); err != nil {
+			cats = nil
+		}
+		a.mu.Lock()
+		if a.categories == nil {
+			a.categories = map[string][]domain.TypeCategory{}
+		}
+		a.categories[parent.Project] = cats
+		a.mu.Unlock()
+	}
+	return domain.ChildTypeOptions(cats, parent.Type)
+}
+
+func (a *Actions) newChild(parent domain.WorkItem) tea.Cmd {
+	return Busy("loading types", func() tea.Msg {
+		types := a.childTypes(context.Background(), parent)
+		return CmdMsg{Push(NewCreateChild(a, parent, types))}
+	})
+}
+
+func (a *Actions) createChild(parent domain.WorkItem, typ, title string, assignToMe bool) tea.Cmd {
+	return Busy("creating "+strings.ToLower(typ), func() tea.Msg {
+		ctx := context.Background()
+		draft := domain.WorkItemDraft{Project: parent.Project, Type: typ, Title: title, ParentID: parent.ID}
+		if assignToMe {
+			me, err := a.Client.CurrentUser(ctx)
+			if err != nil {
+				return StatusMsg{Text: err.Error(), Err: true}
+			}
+			draft.AssignedTo = me
+		}
+		if err := draft.Validate(nil); err != nil {
+			return StatusMsg{Text: err.Error(), Err: true}
+		}
+		item, err := a.Client.CreateWorkItem(ctx, draft)
+		if err != nil {
+			return StatusMsg{Text: err.Error(), Err: true}
+		}
+		if item.ParentID == 0 {
+			item.ParentID = parent.ID
+		}
+		if item.Project == "" {
+			item.Project = parent.Project
+		}
+		return CmdMsg{tea.Batch(
+			func() tea.Msg { return workItemCreatedMsg{item: item, parentID: parent.ID} },
+			Status(fmt.Sprintf("created %s #%d under #%d", item.Type, item.ID, parent.ID)),
+		)}
 	})
 }

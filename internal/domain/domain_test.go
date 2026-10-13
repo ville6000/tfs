@@ -214,3 +214,42 @@ func TestPullRequestQueryValidate(t *testing.T) {
 		t.Error("expected status error")
 	}
 }
+
+func scrumCategories() []TypeCategory {
+	return []TypeCategory{
+		{RefName: CategoryEpic, Default: "Epic", Types: []string{"Epic"}},
+		{RefName: CategoryFeature, Default: "Feature", Types: []string{"Feature"}},
+		{RefName: CategoryRequirement, Default: "Product Backlog Item", Types: []string{"Product Backlog Item"}},
+		{RefName: CategoryBug, Default: "Bug", Types: []string{"Bug"}},
+		{RefName: CategoryTask, Default: "Task", Types: []string{"Task"}},
+		{RefName: "Microsoft.TestCaseCategory", Default: "Test Case", Types: []string{"Test Case"}},
+		{RefName: categoryHidden, Default: "Code Review Request", Types: []string{"Code Review Request", "Shared Steps"}},
+		{RefName: "Custom.1234", Default: "Initiative", Types: []string{"Initiative"}},
+	}
+}
+
+func TestChildTypeOptions(t *testing.T) {
+	cats := scrumCategories()
+	cases := map[string]string{
+		"Initiative":           "Epic",
+		"Epic":                 "Feature",
+		"Feature":              "Product Backlog Item",
+		"product backlog item": "Task",
+		"Bug":                  "Task",
+		"Task":                 "Task",
+		"Unknown":              "Task",
+	}
+	for parent, want := range cases {
+		got := ChildTypeOptions(cats, parent)
+		if got[0] != want {
+			t.Errorf("parent %s: default %q, want %q (%v)", parent, got[0], want, got)
+		}
+	}
+	got := strings.Join(ChildTypeOptions(cats, "Epic"), ",")
+	if got != "Feature,Initiative,Epic,Product Backlog Item,Bug,Task" {
+		t.Errorf("options: %s", got)
+	}
+	if got := ChildTypeOptions(nil, "Feature"); got[0] != "User Story" || len(got) != len(FallbackTypes) {
+		t.Errorf("fallback: %v", got)
+	}
+}

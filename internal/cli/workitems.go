@@ -315,6 +315,15 @@ func (a *App) wiCreateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if typ == "" && parent > 0 {
+				// Pick the type that naturally sits under the parent (Epic → Feature → User Story/PBI
+				// → Task) unless the user configured a defaultType.
+				if v, _ := cfg.Get("defaultType"); v.Source == "default" {
+					if typ, err = childTypeFor(ctx, client, parent); err != nil {
+						return err
+					}
+				}
+			}
 			if typ == "" {
 				typ = cfg.String("defaultType")
 			}
@@ -373,13 +382,22 @@ func (a *App) wiCreateCmd() *cobra.Command {
 		},
 	}
 	fl := cmd.Flags()
-	fl.StringVarP(&typ, "type", "t", "", "work item type (default: defaultType config, else Task)")
+	fl.StringVarP(&typ, "type", "t", "", "work item type (default: the usual child type of --parent, else defaultType config, else Task)")
 	fl.StringVar(&title, "title", "", "title")
 	fl.StringVarP(&desc, "description", "d", "", "description (plain text)")
 	fl.StringVarP(&assigned, "assigned-to", "a", "", "assignee ('@me' for yourself)")
 	fl.StringArrayVar(&tags, "tag", nil, "tag; repeatable")
 	fl.IntVar(&parent, "parent", 0, "parent work item id")
 	return cmd
+}
+
+func childTypeFor(ctx context.Context, client *ado.Client, parentID int) (string, error) {
+	p, err := client.GetWorkItem(ctx, parentID)
+	if err != nil {
+		return "", fmt.Errorf("parent: %w", err)
+	}
+	cats, _ := client.TypeCategories(ctx, p.Project) // fall back to the generic mapping on error
+	return domain.ChildTypeOptions(cats, p.Type)[0], nil
 }
 
 // textToHTML converts plain text to the HTML rich-text fields expect.

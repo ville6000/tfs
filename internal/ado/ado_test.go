@@ -198,3 +198,19 @@ func TestCurrentUser(t *testing.T) {
 		t.Errorf("passthrough: %q", u)
 	}
 }
+
+func TestTypeCategories(t *testing.T) {
+	c, reqs := server(t, func(*http.Request, string) (int, any) {
+		return 200, map[string]any{"value": []any{map[string]any{
+			"referenceName": "Microsoft.RequirementCategory", "defaultWorkItemType": map[string]string{"name": "User Story"},
+			"workItemTypes": []map[string]string{{"name": "User Story"}},
+		}}}
+	})
+	cats, err := c.TypeCategories(context.Background(), "My Proj")
+	if err != nil || len(cats) != 1 || cats[0].Default != "User Story" || cats[0].Types[0] != "User Story" {
+		t.Fatalf("%+v %v", cats, err)
+	}
+	if p := (*reqs)[0].Path; p != "/Col/My Proj/_apis/wit/workitemtypecategories" {
+		t.Errorf("path %s", p)
+	}
+}

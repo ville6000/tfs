@@ -108,6 +108,8 @@ type PullRequest struct {
 	Approval     Approval   `json:"approval"`
 	Reviewers    []Reviewer `json:"reviewers,omitempty"`
 	URL          string     `json:"url"`
+	// Threads holds the comment threads when they were requested; nil means not fetched.
+	Threads []CommentThread `json:"threads,omitempty"`
 }
 
 // PullRequestStatuses are the accepted --status values.

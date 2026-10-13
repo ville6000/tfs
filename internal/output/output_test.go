@@ -43,3 +43,16 @@ func TestTreePlain(t *testing.T) {
 		t.Errorf("got:\n%s\nwant:\n%s", buf.String(), want)
 	}
 }
+
+func TestTreeAssignee(t *testing.T) {
+	tree := domain.BuildForest([]domain.WorkItem{
+		{ID: 1, Type: "Epic", State: "New", Title: "E", AssignedTo: "Alice Smith"},
+		{ID: 2, Type: "Task", State: "New", Title: "T", ParentID: 1},
+	}, domain.NewFilter(nil, nil, nil, nil))
+	var buf bytes.Buffer
+	Tree(&buf, tree)
+	want := "#1 Epic [New] E · Alice Smith\n└── #2 Task [New] T\n"
+	if buf.String() != want {
+		t.Errorf("got:\n%q\nwant:\n%q", buf.String(), want)
+	}
+}

@@ -113,6 +113,23 @@ func TreeLine(n *domain.TreeNode) string {
 	return label
 }
 
+// maxAssigneeWidth caps how much room an assignee name takes in a tree.
+const maxAssigneeWidth = 24
+
+// TreeAssignee renders a node's assignee, or "" when it is unassigned. Ancestors that only
+// connect matches are dimmed like the rest of their line.
+func TreeAssignee(n *domain.TreeNode) string {
+	name := strings.TrimSpace(n.Item.AssignedTo)
+	if name == "" {
+		return ""
+	}
+	name = ansi.Truncate(name, maxAssigneeWidth, "…")
+	if !n.Matches {
+		return ui.Muted.Render(name)
+	}
+	return name
+}
+
 // NoParentLabel is the heading for parentless non-Epic items.
 const NoParentLabel = "No parent"
 
@@ -125,18 +142,25 @@ func Tree(w io.Writer, t domain.Tree) {
 			if i == len(nodes)-1 {
 				branch, next = "└── ", "    "
 			}
-			lipgloss.Fprintln(w, ui.Muted.Render(prefix+branch)+TreeLine(n))
+			lipgloss.Fprintln(w, ui.Muted.Render(prefix+branch)+TreeLine(n)+assigneeSuffix(n))
 			walk(n.Children, prefix+next)
 		}
 	}
 	for _, r := range t.Roots {
-		lipgloss.Fprintln(w, TreeLine(r))
+		lipgloss.Fprintln(w, TreeLine(r)+assigneeSuffix(r))
 		walk(r.Children, "")
 	}
 	if len(t.Orphans) > 0 {
 		lipgloss.Fprintln(w, ui.Bold.Render(NoParentLabel))
 		walk(t.Orphans, "")
 	}
+}
+
+func assigneeSuffix(n *domain.TreeNode) string {
+	if a := TreeAssignee(n); a != "" {
+		return ui.Muted.Render(" · ") + a
+	}
+	return ""
 }
 
 // JSON prints v as indented JSON.

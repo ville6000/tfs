@@ -173,3 +173,42 @@ func TestTreeInsertsCreatedChild(t *testing.T) {
 		t.Errorf("view:\n%s", ansi.Strip(tv.View()))
 	}
 }
+
+func TestTreeAssigneeColumn(t *testing.T) {
+	tree := domain.BuildForest([]domain.WorkItem{
+		{ID: 1, Type: "Epic", Title: "Short", AssignedTo: "Alice"},
+		{ID: 2, Type: "Feature", Title: "A much longer feature title", ParentID: 1, AssignedTo: "Bob"},
+		{ID: 3, Type: "Task", Title: "Unassigned", ParentID: 2},
+	}, domain.NewFilter(nil, nil, nil, nil))
+	tv := NewTreeView("t", &Actions{}, nil)
+	tv.SetSize(100, 10)
+	tv.Update(treeLoadedMsg{screen: tv.id, tree: tree})
+	lines := strings.Split(ansi.Strip(tv.View()), "\n")
+	col := func(line, name string) int { // display column, not byte offset
+		i := strings.Index(line, name)
+		if i < 0 {
+			return -1
+		}
+		return ansi.StringWidth(line[:i])
+	}
+	a, b := col(lines[0], "Alice"), col(lines[1], "Bob")
+	if a < 0 || a != b {
+		t.Fatalf("assignees not aligned (%d, %d):\n%s", a, b, strings.Join(lines, "\n"))
+	}
+	if !strings.HasSuffix(strings.TrimRight(lines[2], " "), "Unassigned") {
+		t.Errorf("unassigned row should end with its title: %q", lines[2])
+	}
+
+	// Narrow: titles are truncated before the assignee is dropped.
+	tv.SetSize(52, 10)
+	lines = strings.Split(ansi.Strip(tv.View()), "\n")
+	if !strings.HasSuffix(lines[1], "Bob") || !strings.Contains(lines[1], "…") {
+		t.Errorf("narrow line: %q", lines[1])
+	}
+
+	// Very narrow: no room for the column at all.
+	tv.SetSize(30, 10)
+	if strings.Contains(ansi.Strip(tv.View()), "Alice") {
+		t.Errorf("assignee should be dropped when too narrow:\n%s", ansi.Strip(tv.View()))
+	}
+}

@@ -22,7 +22,7 @@ var (
 	keyCopy     = key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy url"))
 	keyRefresh  = key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh"))
 	keyPick     = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "choose"))
-	keyNewChild = key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new child"))
+	keyNewChild = key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "new child"))
 )
 
 type workItemsLoadedMsg struct {

@@ -92,7 +92,7 @@ tfs wi comment 1234 - < notes.md            # read the comment from stdin
 tfs wi worktree 1234                         # branch feature/1234-<slug> in ../1234-<slug>
 ```
 
-In the tree, press `n` on an item to create a child under it. The type is preselected from your
+In the tree, press `i` on an item to create a child under it. The type is preselected from your
 process (Epic → Feature → User Story / Product Backlog Item / Requirement → Task), and the new
 item appears in place.
 
@@ -135,7 +135,7 @@ Lists, the tree, and detail views are interactive when stdin and stdout are a te
 | `↑`/`↓`, `j`/`k`, `g`/`G`, `pgup`/`pgdn` | move               |
 | `/`            | filter (lists)                          |
 | `enter`        | details                                 |
-| `n`            | new child of the selected work item (tree, details) |
+| `i`            | new child of the selected work item (tree, details) |
 | `o`            | open in browser                         |
 | `y`            | copy URL to clipboard                   |
 | `s`            | set state (work items)                  |

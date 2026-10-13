@@ -1,0 +1,26 @@
+version: "2"
+linters:
+  enable:
+    - errorlint
+    - gocritic
+    - misspell
+    - revive
+    - unconvert
+  settings:
+    errcheck:
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - charm.land/lipgloss/v2.Fprint
+        - charm.land/lipgloss/v2.Fprintln
+        - charm.land/lipgloss/v2.Fprintf
+        - (*os.File).Close
+        - os.Remove
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+formatters:
+  enable:
+    - gofmt

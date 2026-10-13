@@ -1,0 +1,6 @@
+/tfs
+/dist/
+/bin/
+*.test
+coverage.out
+.DS_Store

@@ -36,6 +36,7 @@ const (
 type File struct {
 	CollectionURL    string   `json:"collectionUrl,omitempty"`
 	DefaultProject   string   `json:"defaultProject,omitempty"`
+	Team             string   `json:"team,omitempty"`
 	APIVersion       string   `json:"apiVersion,omitempty"`
 	UserIdentity     string   `json:"userIdentity,omitempty"`
 	DefaultType      string   `json:"defaultType,omitempty"`

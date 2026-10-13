@@ -19,6 +19,8 @@ type WorkItem struct {
 	Project    string `json:"project,omitempty"`
 	Tags       string `json:"tags,omitempty"`
 	URL        string `json:"url,omitempty"`
+	// Order is the backlog position (Stack Rank or Backlog Priority); 0 when unknown or unranked.
+	Order float64 `json:"order,omitempty"`
 }
 
 // HasParent reports whether the item has a known parent.
@@ -95,6 +97,9 @@ type WorkItemQuery struct {
 	AssignedTo     string
 	Tags           []string
 	Top            int
+	// OrderField is the backlog order field to fetch (e.g. Microsoft.VSTS.Common.StackRank);
+	// empty to skip it.
+	OrderField string
 }
 
 // Query limits.

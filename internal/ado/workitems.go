@@ -32,6 +32,8 @@ const (
 	fieldDesc      = "System.Description"
 	fieldAccept    = "Microsoft.VSTS.Common.AcceptanceCriteria"
 	relParent      = "System.LinkTypes.Hierarchy-Reverse"
+	fieldStackRank = "Microsoft.VSTS.Common.StackRank"
+	fieldPriority  = "Microsoft.VSTS.Common.BacklogPriority"
 	listFieldsBase = "System.Id,System.Title,System.State,System.WorkItemType,System.AssignedTo,System.TeamProject,System.Tags"
 )
 
@@ -120,6 +122,14 @@ func (c *Client) mapWorkItem(r *workItemResponse) domain.WorkItem {
 	if w.URL == "" {
 		w.URL = c.WorkItemWebURL(w.Project, w.ID)
 	}
+	// The order field depends on the process: Stack Rank (Agile, CMMI, Basic) or Backlog
+	// Priority (Scrum). Only the one that was requested is present.
+	for _, f := range []string{fieldStackRank, fieldPriority} {
+		if o, err := strconv.ParseFloat(r.str(f), 64); err == nil && o > 0 {
+			w.Order = o
+			break
+		}
+	}
 	return w
 }
 
@@ -184,10 +194,12 @@ func (c *Client) queryIDs(ctx context.Context, q domain.WorkItemQuery) ([]int, e
 	return ids, nil
 }
 
-func (c *Client) batch(ctx context.Context, ids []int, withParent bool) (map[int]*workItemResponse, error) {
-	fields := listFieldsBase
-	if withParent {
-		fields += "," + fieldParent
+func (c *Client) batch(ctx context.Context, ids []int, extraFields ...string) (map[int]*workItemResponse, error) {
+	fields := listFieldsBase + "," + fieldParent
+	for _, f := range extraFields {
+		if f != "" {
+			fields += "," + f
+		}
 	}
 	out := make(map[int]*workItemResponse, len(ids))
 	for chunk := range slices.Chunk(ids, MaxBatchSize) {
@@ -221,7 +233,7 @@ func (c *Client) ListWorkItems(ctx context.Context, q domain.WorkItemQuery) ([]d
 	if err != nil || len(ids) == 0 {
 		return nil, err
 	}
-	byID, err := c.batch(ctx, ids, true)
+	byID, err := c.batch(ctx, ids, q.OrderField)
 	if err != nil {
 		return nil, err
 	}
@@ -258,7 +270,7 @@ func (c *Client) ListHierarchy(ctx context.Context, q domain.WorkItemQuery) ([]d
 		if len(missing) == 0 {
 			break
 		}
-		fetched, err := c.batch(ctx, missing, true)
+		fetched, err := c.batch(ctx, missing, q.OrderField)
 		if err != nil {
 			return nil, err
 		}
@@ -500,6 +512,69 @@ func (c *Client) TypeCategories(ctx context.Context, project string) ([]domain.T
 			types[j] = t.Name
 		}
 		out[i] = domain.TypeCategory{RefName: v.ReferenceName, Default: v.DefaultWorkItemType.Name, Types: types}
+	}
+	return out, nil
+}
+
+// BacklogOrderField returns the field that holds backlog order for the project's process
+// (Microsoft.VSTS.Common.StackRank or Microsoft.VSTS.Common.BacklogPriority). An empty team means
+// the project's default team.
+func (c *Client) BacklogOrderField(ctx context.Context, project, team string) (string, error) {
+	path := "/" + seg(project)
+	if team != "" {
+		path += "/" + seg(team)
+	}
+	var payload struct {
+		BacklogFields struct {
+			TypeFields map[string]string `json:"typeFields"`
+		} `json:"backlogFields"`
+	}
+	if err := c.get(ctx, c.url(path+"/_apis/work/backlogconfiguration", nil), &payload); err != nil {
+		return "", err
+	}
+	f := payload.BacklogFields.TypeFields["Order"]
+	if f == "" {
+		return "", errors.New("server did not report a backlog order field")
+	}
+	return f, nil
+}
+
+// DefaultTeam returns the name of the project's default team.
+func (c *Client) DefaultTeam(ctx context.Context, project string) (string, error) {
+	var payload struct {
+		DefaultTeam struct {
+			Name string `json:"name"`
+		} `json:"defaultTeam"`
+	}
+	if err := c.get(ctx, c.url("/_apis/projects/"+seg(project), nil), &payload); err != nil {
+		return "", err
+	}
+	if payload.DefaultTeam.Name == "" {
+		return "", fmt.Errorf("project %q has no default team; set one with `tfs config set team <name>`", project)
+	}
+	return payload.DefaultTeam.Name, nil
+}
+
+// ReorderWorkItems moves work items on a team's backlog and returns their new order values.
+// It needs Azure DevOps Server 2020 or later.
+func (c *Client) ReorderWorkItems(ctx context.Context, project, team string, op domain.ReorderOp) (map[int]float64, error) {
+	var payload struct {
+		Value []struct {
+			ID    int     `json:"id"`
+			Order float64 `json:"order"`
+		} `json:"value"`
+	}
+	u := c.url(fmt.Sprintf("/%s/%s/_apis/work/workitemsorder", seg(project), seg(team)),
+		url.Values{"api-version": {c.apiVersion + "-preview.1"}})
+	if err := c.do(ctx, http.MethodPatch, u, "application/json", op, &payload); err != nil {
+		if IsKind(err, ErrNotFound) {
+			return nil, fmt.Errorf("reordering is not available (needs Azure DevOps Server 2020+, and team %q must exist): %w", team, err)
+		}
+		return nil, err
+	}
+	out := make(map[int]float64, len(payload.Value))
+	for _, v := range payload.Value {
+		out[v.ID] = v.Order
 	}
 	return out, nil
 }

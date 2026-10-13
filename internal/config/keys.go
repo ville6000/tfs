@@ -32,6 +32,11 @@ var Keys = []Key{
 		set: func(f *File, v string) { f.DefaultProject = v },
 	},
 	{
+		Name: "team", Description: "Team whose backlog order `wi tree` shows and changes (default: the project's default team)",
+		get: func(f *File) string { return f.Team },
+		set: func(f *File, v string) { f.Team = v },
+	},
+	{
 		Name: "apiVersion", Description: "REST API version sent with every request", Default: DefaultAPIVersion,
 		get: func(f *File) string { return f.APIVersion },
 		set: func(f *File, v string) { f.APIVersion = v },

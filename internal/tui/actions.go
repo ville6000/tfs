@@ -19,8 +19,12 @@ type Actions struct {
 	Worktree   func(ctx context.Context, w domain.WorkItem) (branch, path string, err error)
 	CheckoutPR func(ctx context.Context, pr domain.PullRequest, worktree bool) (string, error)
 
+	// Team resolves the team whose backlog is reordered in a project.
+	Team func(ctx context.Context, project string) (string, error)
+
 	mu         sync.Mutex
 	categories map[string][]domain.TypeCategory // per project
+	teams      map[string]string                // per project
 }
 
 // workItemChangedMsg announces an updated work item to every screen.
@@ -193,4 +197,27 @@ func (a *Actions) createChild(parent domain.WorkItem, typ, title string, assignT
 			Status(fmt.Sprintf("created %s #%d under #%d", item.Type, item.ID, parent.ID)),
 		)}
 	})
+}
+
+// reorder persists a backlog move and returns the new order values by id.
+func (a *Actions) reorder(ctx context.Context, project string, op domain.ReorderOp) (map[int]float64, error) {
+	a.mu.Lock()
+	team, ok := a.teams[project]
+	a.mu.Unlock()
+	if !ok {
+		if a.Team == nil {
+			return nil, fmt.Errorf("no team configured for reordering")
+		}
+		var err error
+		if team, err = a.Team(ctx, project); err != nil {
+			return nil, err
+		}
+		a.mu.Lock()
+		if a.teams == nil {
+			a.teams = map[string]string{}
+		}
+		a.teams[project] = team
+		a.mu.Unlock()
+	}
+	return a.Client.ReorderWorkItems(ctx, project, team, op)
 }

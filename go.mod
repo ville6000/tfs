@@ -1,6 +1,7 @@
 module github.com/ville6000/tfs
 
 go 1.26.1
+toolchain go1.27.2
 
 require (
 	charm.land/bubbles/v2 v2.2.1

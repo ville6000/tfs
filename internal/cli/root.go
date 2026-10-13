@@ -66,7 +66,7 @@ Run 'tfs config wizard' to get started.`,
 	root.PersistentFlags().BoolVar(&a.noTUI, "no-tui", false, "print static output instead of the interactive view")
 	root.PersistentFlags().BoolVar(&a.jsonOut, "json", false, "print JSON (implies --no-tui)")
 	root.PersistentFlags().StringVarP(&a.project, "project", "p", "", "team project (default: defaultProject config, then the git remote)")
-	root.AddCommand(a.workItemCmd(), a.pullRequestCmd(), a.releaseCmd(), a.boardCmd(), a.configCmd())
+	root.AddCommand(a.workItemCmd(), a.pullRequestCmd(), a.buildCmd(), a.releaseCmd(), a.boardCmd(), a.configCmd())
 	return root
 }
 

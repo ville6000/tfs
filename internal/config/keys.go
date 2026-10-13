@@ -77,6 +77,11 @@ var Keys = []Key{
 		get: func(f *File) string { return strings.Join(f.ReleasePipelines, ", ") },
 		set: func(f *File, v string) { f.ReleasePipelines = splitList(v) },
 	},
+	{
+		Name: "buildPipelines", Description: "Comma-separated build pipelines `tfs build` shows (names, \\folder\\name, * wildcards)",
+		get: func(f *File) string { return strings.Join(f.BuildPipelines, ", ") },
+		set: func(f *File, v string) { f.BuildPipelines = splitList(v) },
+	},
 }
 
 // LookupKey finds a key by name (case-insensitive).

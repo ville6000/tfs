@@ -26,6 +26,8 @@ enter details • o open in browser • s set state • a assign to me • w wor
   tree stays connected.
 - **Pull requests** — list with approval status, view details and reviewers, open, check out the
   source branch or create a worktree for review, open the create-PR page for the current branch.
+- **Builds** — recent runs of your build pipelines (classic and YAML) with live status, each
+  build's stages, jobs and tasks with their errors, and task logs.
 - **Releases** — a dashboard of your classic release pipelines showing what is deployed on each
   stage, release history, and approving or rejecting pending approvals.
 - **Worktrees** — `tfs wi worktree 123` creates a branch named after the work item and a git
@@ -65,6 +67,7 @@ only what you use:
 |----------------------------|-----------------------------------------------------------|
 | Work Items — Read & write  | `wi …`, `board open` (Read is enough for list/show/tree)  |
 | Code — Read                | `pr …`                                                    |
+| Build — Read               | `build …`                                                 |
 | Release — Read             | `release` dashboard, history, `release show`, `release approvals` |
 | Release — Read, write, execute & manage | `release approve`, `release reject`             |
 
@@ -126,6 +129,25 @@ tfs pr create                                # open the create-PR page for the c
 tfs pr create --target develop
 ```
 
+### Builds
+
+Builds of classic and YAML pipelines.
+
+```bash
+tfs build                                    # recent builds
+tfs build --pipeline frontend-ci --branch main
+tfs build -b . --mine                        # your builds of the current git branch
+tfs build --result failed
+tfs build show 1234                          # stages, jobs and tasks with their errors
+tfs build log 1234                           # logs of the failed tasks
+tfs build log 1234 --task "npm test"
+```
+
+In a terminal, the build list and build view refresh every 10 seconds while builds are running.
+In a build, the cursor starts on the first failed task: its errors show below the list, `f`
+jumps to the next failure and `enter` opens the task's log at the end, where failures usually are.
+Limit the list to your pipelines permanently with `tfs config set buildPipelines "frontend-ci, backend-ci"`.
+
 ### Releases
 
 Classic release pipelines (Pipelines → Releases).
@@ -185,6 +207,7 @@ Lists, the tree, and detail views are interactive when stdin and stdout are a te
 | `p`            | go to parent (work item details)        |
 | `a` / `x`      | approve / reject a pending release approval (release, my approvals) |
 | `P`            | my pending approvals (release dashboard) |
+| `f`            | next failed task (build)                |
 | `←`/`→`, `space`, `e`, `z` | collapse, expand, toggle, expand all, collapse all (tree) |
 | `r`            | refresh                                 |
 | `esc`          | back                                    |
@@ -224,6 +247,7 @@ pass `--global` to write to the global file. Config files are written with mode 
 | `branchTemplate`   | `feature/{id}-{slug}` | branch for `wi worktree`; placeholders `{id}` `{slug}` `{type}` |
 | `remote`           | `origin`              | git remote used by `pr checkout` and `pr create`              |
 | `requireParentFor` | —                     | comma-separated types that `wi create` requires `--parent` for |
+| `buildPipelines`   | —                     | build pipelines `tfs build` lists (names, `\folder\name`, `*` wildcards) |
 | `releasePipelines` | —                     | release pipelines `tfs release` shows (names, `\folder\name`, `*` wildcards) |
 
 Example project config, safe to commit:

@@ -256,3 +256,64 @@ func FormatTime(t time.Time) string {
 
 // Println writes s to w, downsampling colors to what w supports (none when piped).
 func Println(w io.Writer, s string) { lipgloss.Fprintln(w, s) }
+
+// StageSymbol renders a one-character symbol for a release stage state.
+func StageSymbol(s domain.StageState) string {
+	switch s {
+	case domain.StageSucceeded:
+		return OK.Render("✔")
+	case domain.StagePartiallySucceeded:
+		return Warn.Render("◐")
+	case domain.StageDeploying:
+		return lipgloss.NewStyle().Foreground(ColorInfo).Render("●")
+	case domain.StageAwaitingApproval:
+		return Warn.Bold(true).Render("⏸")
+	case domain.StageQueued:
+		return Muted.Render("◷")
+	case domain.StageFailed:
+		return Danger.Render("✘")
+	case domain.StageCanceled:
+		return Muted.Render("⊘")
+	}
+	return Muted.Render("○")
+}
+
+// StageLabel renders a stage state as a symbol and words, e.g. "⏸ awaiting approval".
+func StageLabel(s domain.StageState) string {
+	text := s.String()
+	switch s {
+	case domain.StageSucceeded:
+		text = OK.Render(text)
+	case domain.StageAwaitingApproval, domain.StagePartiallySucceeded:
+		text = Warn.Render(text)
+	case domain.StageFailed:
+		text = Danger.Render(text)
+	case domain.StageDeploying:
+		text = lipgloss.NewStyle().Foreground(ColorInfo).Render(text)
+	case domain.StageNotStarted, domain.StageQueued, domain.StageCanceled:
+		text = Muted.Render(text)
+	}
+	return StageSymbol(s) + " " + text
+}
+
+// ReleaseStages renders a release's stages on one line: "Dev ✔  Test ●  Prod ○".
+func ReleaseStages(r domain.Release) string {
+	parts := make([]string, len(r.Stages))
+	for i, s := range r.Stages {
+		parts[i] = s.Name + " " + StageSymbol(s.State())
+	}
+	return strings.Join(parts, "  ")
+}
+
+// StageDeployments renders what is deployed where: "Dev ● Release-12  Prod ✔ Release-10".
+func StageDeployments(ds []domain.StageDeployment) string {
+	parts := make([]string, len(ds))
+	for i, d := range ds {
+		if d.Release == nil {
+			parts[i] = d.Stage.Name + " " + StageSymbol(domain.StageNotStarted)
+			continue
+		}
+		parts[i] = d.Stage.Name + " " + StageSymbol(d.State.State()) + " " + Muted.Render(d.Release.Name)
+	}
+	return strings.Join(parts, "  ")
+}

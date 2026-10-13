@@ -141,3 +141,12 @@ func PromptText(title string) (string, error) {
 	)))
 	return text, err
 }
+
+// ConfirmAction asks a yes/no question that defaults to no.
+func ConfirmAction(question, detail, yes string) (bool, error) {
+	var ok bool
+	err := runForm(huh.NewForm(huh.NewGroup(
+		huh.NewConfirm().Title(question).Description(detail).Affirmative(yes).Negative("Cancel").Value(&ok),
+	)))
+	return ok, err
+}

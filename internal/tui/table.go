@@ -25,9 +25,17 @@ type Row struct {
 	Key    int
 	Cells  []string
 	Styles []lipgloss.Style
+	// Search, when set, is the text filtering matches against instead of the cells (for cells
+	// that contain pre-rendered styling).
+	Search string
 }
 
-func (r Row) text() string { return strings.ToLower(strings.Join(r.Cells, " ")) }
+func (r Row) text() string {
+	if r.Search != "" {
+		return strings.ToLower(r.Search)
+	}
+	return strings.ToLower(strings.Join(r.Cells, " "))
+}
 
 var (
 	keyUp     = key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑/k", "up"))

@@ -95,7 +95,7 @@ type App struct {
 // NewApp creates an app with root as its first screen.
 func NewApp(root Screen) *App {
 	h := help.New()
-	h.Styles = help.DefaultStyles(ui.IsDark())
+	h.Styles = helpStyles()
 	return &App{
 		stack:   []Screen{root},
 		spinner: spinner.New(spinner.WithSpinner(spinner.Dot), spinner.WithStyle(ui.Accent)),
@@ -200,6 +200,23 @@ func (a *App) pop() (tea.Model, tea.Cmd) {
 	a.stack = a.stack[:len(a.stack)-1]
 	a.fullHelp = false
 	return a, nil
+}
+
+// helpStyles replaces the bubbles defaults (dim grays that are hard to read) with the terminal's
+// own palette: bold cyan keys, normal-foreground descriptions, muted separators only.
+func helpStyles() help.Styles {
+	keyStyle := lipgloss.NewStyle().Bold(true).Foreground(ui.ColorInfo)
+	descStyle := lipgloss.NewStyle()
+	sepStyle := ui.Muted
+	return help.Styles{
+		ShortKey:       keyStyle,
+		ShortDesc:      descStyle,
+		ShortSeparator: sepStyle,
+		Ellipsis:       sepStyle,
+		FullKey:        keyStyle,
+		FullDesc:       descStyle,
+		FullSeparator:  sepStyle,
+	}
 }
 
 type helpKeys struct {

@@ -475,3 +475,31 @@ func (c *Client) TypeStates(ctx context.Context, project, workItemType string) (
 	}
 	return out, nil
 }
+
+// TypeCategories lists the project's work item type categories (Epic, Feature, Requirement,
+// Task, Bug, Hidden, …), which map process-specific type names onto backlog levels.
+func (c *Client) TypeCategories(ctx context.Context, project string) ([]domain.TypeCategory, error) {
+	var payload struct {
+		Value []struct {
+			ReferenceName       string `json:"referenceName"`
+			DefaultWorkItemType struct {
+				Name string `json:"name"`
+			} `json:"defaultWorkItemType"`
+			WorkItemTypes []struct {
+				Name string `json:"name"`
+			} `json:"workItemTypes"`
+		} `json:"value"`
+	}
+	if err := c.get(ctx, c.url("/"+seg(project)+"/_apis/wit/workitemtypecategories", nil), &payload); err != nil {
+		return nil, err
+	}
+	out := make([]domain.TypeCategory, len(payload.Value))
+	for i, v := range payload.Value {
+		types := make([]string, len(v.WorkItemTypes))
+		for j, t := range v.WorkItemTypes {
+			types[j] = t.Name
+		}
+		out[i] = domain.TypeCategory{RefName: v.ReferenceName, Default: v.DefaultWorkItemType.Name, Types: types}
+	}
+	return out, nil
+}

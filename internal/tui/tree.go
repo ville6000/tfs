@@ -141,7 +141,7 @@ func (t *TreeView) SetSize(w, h int) {
 }
 
 func (t *TreeView) Help() []key.Binding {
-	return []key.Binding{keyEnter, keyOpen, keyCollapse, keyExpand, keyToggle, keyState, keyAssign, keyWorktree,
+	return []key.Binding{keyEnter, keyNewChild, keyOpen, keyCollapse, keyExpand, keyToggle, keyState, keyAssign, keyWorktree,
 		keyCopy, keyExpandAll, keyCollapseAll, keyRefresh, keyUp, keyDown, keyPgUp, keyPgDown}
 }
 
@@ -180,6 +180,21 @@ func replaceItem(nodes []*domain.TreeNode, w domain.WorkItem) {
 	}
 }
 
+// addChild inserts item under every node with id parentID; it reports whether one was found.
+func addChild(nodes []*domain.TreeNode, parentID int, item domain.WorkItem) bool {
+	found := false
+	for _, n := range nodes {
+		if n.Item.ID == parentID {
+			n.Children = append(n.Children, &domain.TreeNode{Item: item, Matches: true})
+			found = true
+		}
+		if addChild(n.Children, parentID, item) {
+			found = true
+		}
+	}
+	return found
+}
+
 func (t *TreeView) Update(msg tea.Msg) (Screen, tea.Cmd) {
 	switch msg := msg.(type) {
 	case treeLoadedMsg:
@@ -198,6 +213,21 @@ func (t *TreeView) Update(msg tea.Msg) (Screen, tea.Cmd) {
 		if t.tree != nil {
 			replaceItem(t.tree.Roots, msg.item)
 			replaceItem(t.tree.Orphans, msg.item)
+		}
+		return t, nil
+	case workItemCreatedMsg:
+		if t.tree == nil {
+			return t, nil
+		}
+		if addChild(t.tree.Roots, msg.parentID, msg.item) || addChild(t.tree.Orphans, msg.parentID, msg.item) {
+			delete(t.collapsed, msg.parentID)
+			t.flatten()
+			for i, e := range t.entries {
+				if e.key == msg.item.ID {
+					t.cursor = i
+				}
+			}
+			t.clamp()
 		}
 		return t, nil
 	case tea.KeyPressMsg:
@@ -252,6 +282,8 @@ func (t *TreeView) Update(msg tea.Msg) (Screen, tea.Cmd) {
 		case !isItem:
 		case key.Matches(msg, keyEnter):
 			return t, Push(NewWorkItemDetail(t.act, w.ID))
+		case key.Matches(msg, keyNewChild):
+			return t, t.act.newChild(w)
 		case key.Matches(msg, keyOpen):
 			return t, t.act.open(w.URL)
 		case key.Matches(msg, keyCopy):

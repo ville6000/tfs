@@ -75,6 +75,8 @@ var (
 	keyQuit = key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit"))
 	keyBack = key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back"))
 	keyHelp = key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "more keys"))
+	// Shown instead of q while a screen takes text input.
+	keyForceQuit = key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "quit"))
 )
 
 // App hosts a stack of screens.
@@ -246,10 +248,15 @@ func (a *App) View() tea.View {
 	b.WriteString(lipgloss.NewStyle().MaxWidth(a.width).Render(status) + "\n")
 
 	keys := append([]key.Binding{}, top.Help()...)
-	if len(a.stack) > 1 {
-		keys = append(keys, keyBack)
+	if top.Capturing() {
+		// q, ? and esc go to the input; the screen lists its own esc behaviour.
+		keys = append(keys, keyForceQuit)
+	} else {
+		if len(a.stack) > 1 {
+			keys = append(keys, keyBack)
+		}
+		keys = append(keys, keyHelp, keyQuit)
 	}
-	keys = append(keys, keyHelp, keyQuit)
 	if a.fullHelp {
 		b.WriteString(a.help.FullHelpView(helpKeys{keys}.FullHelp()))
 	} else {

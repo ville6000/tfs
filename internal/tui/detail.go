@@ -64,7 +64,7 @@ func (d *WorkItemDetail) SetSize(w, h int) {
 }
 
 func (d *WorkItemDetail) Help() []key.Binding {
-	return []key.Binding{keyOpen, keyComment, keyState, keyAssign, keyWorktree, keyParent, keyCopy, keyRefresh, keyUp, keyDown}
+	return []key.Binding{keyOpen, keyComment, keyNewChild, keyState, keyAssign, keyWorktree, keyParent, keyCopy, keyRefresh, keyUp, keyDown}
 }
 
 func (d *WorkItemDetail) Update(msg tea.Msg) (Screen, tea.Cmd) {
@@ -103,6 +103,8 @@ func (d *WorkItemDetail) Update(msg tea.Msg) (Screen, tea.Cmd) {
 			return d, copyURL(w.URL)
 		case key.Matches(msg, keyComment):
 			return d, d.act.comment(w.ID)
+		case key.Matches(msg, keyNewChild):
+			return d, d.act.newChild(w)
 		case key.Matches(msg, keyState):
 			return d, d.act.changeState(w)
 		case key.Matches(msg, keyAssign):

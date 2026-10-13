@@ -84,12 +84,17 @@ tfs wi tree -T task -S removed               # deny-lists: --no-type / --no-stat
 tfs wi show 1234                             # details; omit the id to pick from a list
 tfs wi open 1234
 tfs wi create -t bug --title "Login fails" --parent 1200 -a @me
+tfs wi create --parent 1200 --title "Sign in with SSO"   # type follows the parent: Epic → Feature → Story → Task
 tfs wi create                                # interactive form
 tfs wi update 1234 --state active --assigned-to @me
 tfs wi comment 1234 "Retested on staging"
 tfs wi comment 1234 - < notes.md            # read the comment from stdin
 tfs wi worktree 1234                         # branch feature/1234-<slug> in ../1234-<slug>
 ```
+
+In the tree, press `n` on an item to create a child under it. The type is preselected from your
+process (Epic → Feature → User Story / Product Backlog Item / Requirement → Task), and the new
+item appears in place.
 
 By default lists and the project tree hide `Closed` and `Removed` items; the tree also hides
 Test Cases, Plans and Suites unless you ask for them with `--type`.
@@ -130,6 +135,7 @@ Lists, the tree, and detail views are interactive when stdin and stdout are a te
 | `↑`/`↓`, `j`/`k`, `g`/`G`, `pgup`/`pgdn` | move               |
 | `/`            | filter (lists)                          |
 | `enter`        | details                                 |
+| `n`            | new child of the selected work item (tree, details) |
 | `o`            | open in browser                         |
 | `y`            | copy URL to clipboard                   |
 | `s`            | set state (work items)                  |

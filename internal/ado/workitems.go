@@ -12,7 +12,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/ville6000/tfs/internal/domain"
 )
@@ -408,9 +407,9 @@ func (c *Client) UpdateWorkItem(ctx context.Context, id int, upd domain.WorkItem
 }
 
 type commentResponse struct {
-	ID          int       `json:"id"`
-	Text        string    `json:"text"`
-	CreatedDate time.Time `json:"createdDate"`
+	ID          int     `json:"id"`
+	Text        string  `json:"text"`
+	CreatedDate apiTime `json:"createdDate"`
 	CreatedBy   struct {
 		DisplayName string `json:"displayName"`
 	} `json:"createdBy"`
@@ -421,7 +420,7 @@ func (r commentResponse) toDomain() domain.Comment {
 	if author == "" {
 		author = "unknown"
 	}
-	return domain.Comment{ID: r.ID, Author: author, Created: r.CreatedDate, Text: r.Text}
+	return domain.Comment{ID: r.ID, Author: author, Created: r.CreatedDate.Time, Text: r.Text}
 }
 
 func (c *Client) commentsURL(project string, id int) string {

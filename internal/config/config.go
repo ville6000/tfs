@@ -44,6 +44,7 @@ type File struct {
 	Remote           string   `json:"remote,omitempty"`
 	RequireParentFor []string `json:"requireParentFor,omitempty"`
 	ReleasePipelines []string `json:"releasePipelines,omitempty"`
+	BuildPipelines   []string `json:"buildPipelines,omitempty"`
 }
 
 // Config is the loaded global and project configuration.

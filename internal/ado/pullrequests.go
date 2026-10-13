@@ -6,20 +6,19 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/ville6000/tfs/internal/domain"
 )
 
 type pullRequestResponse struct {
-	PullRequestID int       `json:"pullRequestId"`
-	Title         string    `json:"title"`
-	Description   string    `json:"description"`
-	Status        string    `json:"status"`
-	IsDraft       bool      `json:"isDraft"`
-	CreationDate  time.Time `json:"creationDate"`
-	SourceRefName string    `json:"sourceRefName"`
-	TargetRefName string    `json:"targetRefName"`
+	PullRequestID int     `json:"pullRequestId"`
+	Title         string  `json:"title"`
+	Description   string  `json:"description"`
+	Status        string  `json:"status"`
+	IsDraft       bool    `json:"isDraft"`
+	CreationDate  apiTime `json:"creationDate"`
+	SourceRefName string  `json:"sourceRefName"`
+	TargetRefName string  `json:"targetRefName"`
 	CreatedBy     struct {
 		DisplayName string `json:"displayName"`
 	} `json:"createdBy"`
@@ -54,7 +53,7 @@ func (c *Client) mapPullRequest(r pullRequestResponse, project string) domain.Pu
 		Title:        r.Title,
 		Description:  r.Description,
 		CreatedBy:    r.CreatedBy.DisplayName,
-		Created:      r.CreationDate,
+		Created:      r.CreationDate.Time,
 		SourceBranch: domain.TrimRef(r.SourceRefName),
 		TargetBranch: domain.TrimRef(r.TargetRefName),
 		Repository:   r.Repository.Name,

@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/ville6000/tfs/internal/domain"
 )
@@ -33,7 +32,7 @@ type approvalResponse struct {
 	ApprovalType string      `json:"approvalType"`
 	Status       string      `json:"status"`
 	Approver     identityRef `json:"approver"`
-	CreatedOn    time.Time   `json:"createdOn"`
+	CreatedOn    apiTime     `json:"createdOn"`
 	Release      struct {
 		ID   int    `json:"id"`
 		Name string `json:"name"`
@@ -53,7 +52,7 @@ func (a approvalResponse) toDomain() domain.ReleaseApproval {
 		ID: a.ID, Type: a.ApprovalType, Status: a.Status, Approver: a.Approver.DisplayName,
 		ReleaseID: a.Release.ID, Release: a.Release.Name,
 		PipelineID: a.ReleaseDefinition.ID, Pipeline: a.ReleaseDefinition.Name,
-		StageID: a.ReleaseEnvironment.ID, Stage: a.ReleaseEnvironment.Name, Created: a.CreatedOn,
+		StageID: a.ReleaseEnvironment.ID, Stage: a.ReleaseEnvironment.Name, Created: a.CreatedOn.Time,
 	}
 }
 
@@ -62,7 +61,7 @@ type releaseResponse struct {
 	Name        string      `json:"name"`
 	Status      string      `json:"status"`
 	Description string      `json:"description"`
-	CreatedOn   time.Time   `json:"createdOn"`
+	CreatedOn   apiTime     `json:"createdOn"`
 	CreatedBy   identityRef `json:"createdBy"`
 	Links       link        `json:"_links"`
 	Definition  struct {
@@ -75,7 +74,7 @@ type releaseResponse struct {
 		Name                    string             `json:"name"`
 		Rank                    int                `json:"rank"`
 		Status                  string             `json:"status"`
-		ModifiedOn              time.Time          `json:"modifiedOn"`
+		ModifiedOn              apiTime            `json:"modifiedOn"`
 		PreDeployApprovals      []approvalResponse `json:"preDeployApprovals"`
 		PostDeployApprovals     []approvalResponse `json:"postDeployApprovals"`
 	} `json:"environments"`
@@ -84,7 +83,7 @@ type releaseResponse struct {
 func (c *Client) mapRelease(project string, r releaseResponse) domain.Release {
 	rel := domain.Release{
 		ID: r.ID, Name: r.Name, PipelineID: r.Definition.ID, Pipeline: r.Definition.Name,
-		Status: r.Status, Description: r.Description, CreatedBy: r.CreatedBy.DisplayName, Created: r.CreatedOn,
+		Status: r.Status, Description: r.Description, CreatedBy: r.CreatedBy.DisplayName, Created: r.CreatedOn.Time,
 		URL: r.Links.Web.Href,
 	}
 	if rel.URL == "" {
@@ -93,7 +92,7 @@ func (c *Client) mapRelease(project string, r releaseResponse) domain.Release {
 	for _, e := range r.Environments {
 		s := domain.ReleaseStage{
 			ID: e.ID, PipelineStageID: e.DefinitionEnvironmentID, Name: e.Name, Rank: e.Rank,
-			Status: e.Status, Modified: e.ModifiedOn,
+			Status: e.Status, Modified: e.ModifiedOn.Time,
 		}
 		for _, a := range slices.Concat(e.PreDeployApprovals, e.PostDeployApprovals) {
 			if strings.EqualFold(a.Status, "pending") {

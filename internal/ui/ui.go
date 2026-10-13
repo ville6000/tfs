@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -316,4 +317,104 @@ func StageDeployments(ds []domain.StageDeployment) string {
 		parts[i] = d.Stage.Name + " " + StageSymbol(d.State.State()) + " " + Muted.Render(d.Release.Name)
 	}
 	return strings.Join(parts, "  ")
+}
+
+// BuildSymbol renders a one-character symbol for a build or timeline state.
+func BuildSymbol(s domain.BuildState) string {
+	switch s {
+	case domain.BuildSucceeded:
+		return OK.Render("✔")
+	case domain.BuildPartiallySucceeded:
+		return Warn.Render("◐")
+	case domain.BuildFailed:
+		return Danger.Render("✘")
+	case domain.BuildRunning:
+		return lipgloss.NewStyle().Foreground(ColorInfo).Render("●")
+	case domain.BuildCancelling, domain.BuildCanceled:
+		return Muted.Render("⊘")
+	case domain.BuildSkipped:
+		return Muted.Render("–")
+	}
+	return Muted.Render("◷")
+}
+
+// BuildLabel renders a build state as a symbol and words.
+func BuildLabel(s domain.BuildState) string {
+	text := s.String()
+	switch s {
+	case domain.BuildSucceeded:
+		text = OK.Render(text)
+	case domain.BuildPartiallySucceeded:
+		text = Warn.Render(text)
+	case domain.BuildFailed:
+		text = Danger.Render(text)
+	case domain.BuildRunning:
+		text = lipgloss.NewStyle().Foreground(ColorInfo).Render(text)
+	default:
+		text = Muted.Render(text)
+	}
+	return BuildSymbol(s) + " " + text
+}
+
+// FormatDuration renders a duration compactly: 45s, 3m12s, 1h04m.
+func FormatDuration(d time.Duration) string {
+	switch {
+	case d <= 0:
+		return ""
+	case d < time.Minute:
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm%02ds", int(d.Minutes()), int(d.Seconds())%60)
+	}
+	return fmt.Sprintf("%dh%02dm", int(d.Hours()), int(d.Minutes())%60)
+}
+
+var logTimestamp = regexp.MustCompile(`^\x{FEFF}?\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?Z ?`)
+
+// FormatLog prepares a build log for reading: timestamps are dropped and the agent's
+// ##[error], ##[warning], ##[section] and ##[command] markers become colors. With styled false
+// the markers become plain prefixes.
+func FormatLog(text string, styled bool) string {
+	lines := strings.Split(strings.TrimRight(strings.ReplaceAll(text, "\r\n", "\n"), "\n"), "\n")
+	out := lines[:0]
+	for _, l := range lines {
+		l = logTimestamp.ReplaceAllString(l, "")
+		marker, rest := "", l
+		if strings.HasPrefix(l, "##[") {
+			if i := strings.Index(l, "]"); i > 0 {
+				marker, rest = l[3:i], l[i+1:]
+			}
+		}
+		switch marker {
+		case "endgroup":
+			continue
+		case "error":
+			l = "error: " + rest
+			if styled {
+				l = Danger.Bold(true).Render("✘ " + rest)
+			}
+		case "warning":
+			l = "warning: " + rest
+			if styled {
+				l = Warn.Render("! " + rest)
+			}
+		case "section", "group":
+			l = rest
+			if styled {
+				l = Bold.Render(rest)
+			}
+		case "command":
+			l = "$ " + rest
+			if styled {
+				l = Accent.Render("$ " + rest)
+			}
+		case "debug":
+			l = rest
+			if styled {
+				l = Muted.Render(rest)
+			}
+		}
+		out = append(out, l)
+	}
+	return strings.Join(out, "\n")
 }

@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -24,6 +25,10 @@ type Client struct {
 	http       *http.Client
 	// UserIdentity, when set, is what "@me" resolves to instead of asking the server.
 	UserIdentity string
+
+	meOnce sync.Once
+	me     me
+	meErr  error
 }
 
 // New creates a client. collection is the collection URL, e.g. https://host/DefaultCollection.

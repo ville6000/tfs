@@ -26,6 +26,8 @@ enter details • o open in browser • s set state • a assign to me • w wor
   tree stays connected.
 - **Pull requests** — list with approval status, view details and reviewers, open, check out the
   source branch or create a worktree for review, open the create-PR page for the current branch.
+- **Releases** — a dashboard of your classic release pipelines showing what is deployed on each
+  stage, release history, and approving or rejecting pending approvals.
 - **Worktrees** — `tfs wi worktree 123` creates a branch named after the work item and a git
   worktree next to your repository.
 - **Interactive when it helps, scriptable when you need it** — TUIs in a terminal; static tables
@@ -63,6 +65,8 @@ only what you use:
 |----------------------------|-----------------------------------------------------------|
 | Work Items — Read & write  | `wi …`, `board open` (Read is enough for list/show/tree)  |
 | Code — Read                | `pr …`                                                    |
+| Release — Read             | `release` dashboard, history, `release show`, `release approvals` |
+| Release — Read, write, execute & manage | `release approve`, `release reject`             |
 
 `pr checkout` and `wi worktree` run your local `git`, which uses your normal git credentials.
 
@@ -122,6 +126,34 @@ tfs pr create                                # open the create-PR page for the c
 tfs pr create --target develop
 ```
 
+### Releases
+
+Classic release pipelines (Pipelines → Releases).
+
+```bash
+tfs release                                  # dashboard: newest release on every stage of each pipeline
+tfs release --pipeline frontend              # one pipeline's release history
+tfs release show 142                         # a release and its stages
+tfs release approvals                        # approvals waiting for you (including your groups')
+tfs release approve 142 --stage Prod -m "Smoke tests green"
+tfs release reject 142 --stage Prod -m "Blocked by incident"
+```
+
+The dashboard lists, for each stage, the newest release that reached it, so you can see what is
+deployed where, e.g. `Dev ● Release-12  Test ✔ Release-11  Prod ⏸ Release-11`
+(✔ succeeded, ● deploying, ⏸ awaiting approval, ✘ failed or rejected, ○ not started).
+
+Limit it to the pipelines you work on with `--pipeline`, or permanently:
+
+```bash
+tfs config set releasePipelines "frontend, backend"
+```
+
+Approving and rejecting always ask for confirmation (the default answer is no) and record an
+optional comment; in scripts pass `--yes`. You can only approve stages you are an approver of.
+`tfs` never starts or promotes a deployment by itself — releases move on through their
+pipeline's own triggers and approvals.
+
 ### Boards
 
 ```bash
@@ -151,6 +183,8 @@ Lists, the tree, and detail views are interactive when stdin and stdout are a te
 | `c`            | comment (work items) / checkout (PRs)   |
 | `w`            | create worktree                         |
 | `p`            | go to parent (work item details)        |
+| `a` / `x`      | approve / reject a pending release approval (release, my approvals) |
+| `P`            | my pending approvals (release dashboard) |
 | `←`/`→`, `space`, `e`, `z` | collapse, expand, toggle, expand all, collapse all (tree) |
 | `r`            | refresh                                 |
 | `esc`          | back                                    |
@@ -190,6 +224,7 @@ pass `--global` to write to the global file. Config files are written with mode 
 | `branchTemplate`   | `feature/{id}-{slug}` | branch for `wi worktree`; placeholders `{id}` `{slug}` `{type}` |
 | `remote`           | `origin`              | git remote used by `pr checkout` and `pr create`              |
 | `requireParentFor` | —                     | comma-separated types that `wi create` requires `--parent` for |
+| `releasePipelines` | —                     | release pipelines `tfs release` shows (names, `\folder\name`, `*` wildcards) |
 
 Example project config, safe to commit:
 

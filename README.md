@@ -41,7 +41,11 @@ Supports Azure DevOps Server 2019 and later (set `apiVersion` to `5.0` for 2019)
 
 ## Install
 
-With Go 1.26+:
+```bash
+brew install ville6000/tap/tfs
+```
+
+Or with Go 1.26+:
 
 ```bash
 go install github.com/ville6000/tfs/cmd/tfs@latest
@@ -290,7 +294,9 @@ The code is organised as:
 - `internal/tui` — Bubble Tea views; `internal/output` — static tables; `internal/ui` — shared styles
 - `internal/cli` — Cobra commands
 
-Releases are built by GoReleaser when a `v*` tag is pushed.
+Releases are built by GoReleaser when a GitHub release is published (with a new `vX.Y.Z`
+tag): it attaches the binaries to the release and updates the Homebrew cask in
+[ville6000/homebrew-tap](https://github.com/ville6000/homebrew-tap).
 
 ## License
 

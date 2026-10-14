@@ -51,10 +51,10 @@ func (a *App) workItemCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "wi",
 		Aliases: []string{"workitem", "workitems"},
-		Short:   "Work items: list, tree, show, create, update, comment, worktree",
+		Short:   "Work items: list, tree, show, create, update, comment, branch, worktree",
 	}
 	cmd.AddCommand(a.wiListCmd(), a.wiTreeCmd(), a.wiShowCmd(), a.wiOpenCmd(), a.wiCreateCmd(),
-		a.wiUpdateCmd(), a.wiCommentCmd(), a.wiWorktreeCmd())
+		a.wiUpdateCmd(), a.wiCommentCmd(), a.wiBranchCmd(), a.wiWorktreeCmd())
 	return cmd
 }
 
@@ -518,6 +518,80 @@ func (a *App) wiCommentCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func (a *App) wiBranchCmd() *cobra.Command {
+	var base string
+	cmd := &cobra.Command{
+		Use:   "branch [id]",
+		Short: "Create a git branch for a work item and switch to it",
+		Long: `Create a git branch named after the work item and switch to it.
+
+The branch name comes from the branchTemplate config (default feature/{id}-{slug}). It starts
+from the remote's default branch, fetched first so it is up to date, unless --base is given.
+If the branch already exists, tfs just switches to it.`,
+		Example: `  tfs wi branch 1234
+  tfs wi branch 1234 --base origin/develop
+  tfs wi branch          # pick a work item`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+			client, err := a.api()
+			if err != nil {
+				return err
+			}
+			id, err := a.pickWorkItem(ctx, args, "create a branch for")
+			if err != nil {
+				return err
+			}
+			w, err := client.GetWorkItem(ctx, id)
+			if err != nil {
+				return err
+			}
+			msg, err := a.workItemBranch(ctx, w, base)
+			if err != nil {
+				return err
+			}
+			a.printf("%s\n", msg)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&base, "base", "", "start point (default: the remote's default branch, e.g. origin/main)")
+	return cmd
+}
+
+// workItemBranch creates (or switches to) the work item's branch and describes what it did.
+func (a *App) workItemBranch(ctx context.Context, w domain.WorkItem, base string) (string, error) {
+	cfg, err := a.config()
+	if err != nil {
+		return "", err
+	}
+	if domain.TitleSlug(w.Title) == "" {
+		return "", fmt.Errorf("work item #%d has no usable title to derive a branch name from", w.ID)
+	}
+	branch := domain.BranchName(cfg.String("branchTemplate"), w)
+	g := git.Git{}
+	if g.LocalBranchExists(ctx, branch) {
+		if _, err := g.SwitchNewBranch(ctx, branch, ""); err != nil {
+			return "", err
+		}
+		return "Switched to existing branch " + branch, nil
+	}
+	if base == "" {
+		remote := cfg.String("remote")
+		def, err := g.DefaultBranch(ctx, remote)
+		if err != nil {
+			return "", err
+		}
+		if err := g.Fetch(ctx, remote, def); err != nil {
+			return "", err
+		}
+		base = remote + "/" + def
+	}
+	if _, err := g.SwitchNewBranch(ctx, branch, base); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Switched to new branch %s (from %s)", branch, base), nil
 }
 
 func (a *App) wiWorktreeCmd() *cobra.Command {

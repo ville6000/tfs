@@ -100,6 +100,32 @@ func (g Git) AddWorktreeNewBranch(ctx context.Context, path, branch string) erro
 	return err
 }
 
+// DefaultBranch returns the remote's default branch name (e.g. "main"), from the remote's HEAD
+// when the clone knows it, otherwise the first of main/master/develop that exists on the remote.
+func (g Git) DefaultBranch(ctx context.Context, remote string) (string, error) {
+	if ref, err := g.run(ctx, "symbolic-ref", "--quiet", "--short", "refs/remotes/"+remote+"/HEAD"); err == nil && ref != "" {
+		return strings.TrimPrefix(ref, remote+"/"), nil
+	}
+	for _, b := range []string{"main", "master", "develop"} {
+		if _, err := g.run(ctx, "show-ref", "--verify", "--quiet", "refs/remotes/"+remote+"/"+b); err == nil {
+			return b, nil
+		}
+	}
+	return "", fmt.Errorf("cannot tell the default branch of %s; run `git remote set-head %s --auto` or pass --base", remote, remote)
+}
+
+// SwitchNewBranch creates branch from base and switches to it. When branch already exists it
+// only switches to it, and created is false.
+func (g Git) SwitchNewBranch(ctx context.Context, branch, base string) (created bool, err error) {
+	if g.LocalBranchExists(ctx, branch) {
+		_, err := g.run(ctx, "switch", branch)
+		return false, err
+	}
+	// --no-track: the new branch must not track the base (e.g. origin/main) for pushes.
+	_, err = g.run(ctx, "switch", "--no-track", "-c", branch, base)
+	return err == nil, err
+}
+
 // SiblingPath returns <parent of repo root>/<name>, the default location for new worktrees.
 func (g Git) SiblingPath(ctx context.Context, name string) (string, error) {
 	root, err := g.Root(ctx)

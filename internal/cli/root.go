@@ -147,6 +147,9 @@ func (a *App) actions() *tui.Actions {
 		Worktree: func(ctx context.Context, w domain.WorkItem) (string, string, error) {
 			return a.workItemWorktree(ctx, w, "")
 		},
+		Branch: func(ctx context.Context, w domain.WorkItem) (string, error) {
+			return a.workItemBranch(ctx, w, "")
+		},
 		CheckoutPR: func(ctx context.Context, pr domain.PullRequest, worktree bool) (string, error) {
 			return a.checkoutPullRequest(ctx, pr, worktree, "")
 		},

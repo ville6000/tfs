@@ -61,3 +61,49 @@ func TestWorktreeFlows(t *testing.T) {
 		t.Error("expected error for missing remote")
 	}
 }
+
+func TestBranchFromDefault(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	ctx := context.Background()
+	tmp := t.TempDir()
+	origin, clone := filepath.Join(tmp, "origin"), filepath.Join(tmp, "clone")
+	if err := os.MkdirAll(origin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	run(t, origin, "init", "-q", "-b", "trunk")
+	run(t, origin, "commit", "-q", "--allow-empty", "-m", "init")
+	run(t, tmp, "clone", "-q", origin, clone)
+	run(t, clone, "switch", "-q", "-c", "elsewhere")
+
+	g := Git{Dir: clone}
+	def, err := g.DefaultBranch(ctx, "origin")
+	if err != nil || def != "trunk" {
+		t.Fatalf("default %q %v", def, err)
+	}
+	created, err := g.SwitchNewBranch(ctx, "feature/1-x", "origin/trunk")
+	if err != nil || !created {
+		t.Fatalf("create: %v %v", created, err)
+	}
+	if b, _ := g.CurrentBranch(ctx); b != "feature/1-x" {
+		t.Errorf("on %q", b)
+	}
+	if up, err := g.run(ctx, "config", "--get", "branch.feature/1-x.merge"); err == nil {
+		t.Errorf("new branch should not track the base, tracks %q", up)
+	}
+	run(t, clone, "switch", "-q", "elsewhere")
+	created, err = g.SwitchNewBranch(ctx, "feature/1-x", "origin/trunk")
+	if err != nil || created {
+		t.Fatalf("existing branch should just be switched to: %v %v", created, err)
+	}
+	if b, _ := g.CurrentBranch(ctx); b != "feature/1-x" {
+		t.Errorf("on %q", b)
+	}
+
+	// Without origin/HEAD, fall back to a well-known branch name that exists on the remote.
+	run(t, clone, "remote", "set-head", "origin", "--delete")
+	if _, err := g.DefaultBranch(ctx, "origin"); err == nil {
+		t.Error("trunk is not a well-known name; expected an error asking for --base")
+	}
+}

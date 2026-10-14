@@ -30,8 +30,9 @@ enter details • o open in browser • s set state • a assign to me • w wor
   build's stages, jobs and tasks with their errors, and task logs.
 - **Releases** — a dashboard of your classic release pipelines showing what is deployed on each
   stage, release history, and approving or rejecting pending approvals.
-- **Worktrees** — `tfs wi worktree 123` creates a branch named after the work item and a git
-  worktree next to your repository.
+- **Branches and worktrees** — `tfs wi branch 123` creates a branch named after the work item
+  from the latest default branch and switches to it; `tfs wi worktree 123` puts it in a git
+  worktree next to your repository instead.
 - **Interactive when it helps, scriptable when you need it** — TUIs in a terminal; static tables
   when piped or with `--no-tui`; `--json` everywhere.
 - **Per-repository config** layered over your global config.
@@ -97,6 +98,7 @@ tfs wi create                                # interactive form
 tfs wi update 1234 --state active --assigned-to @me
 tfs wi comment 1234 "Retested on staging"
 tfs wi comment 1234 - < notes.md            # read the comment from stdin
+tfs wi branch 1234                           # new branch feature/1234-<slug> from origin's default branch
 tfs wi worktree 1234                         # branch feature/1234-<slug> in ../1234-<slug>
 ```
 
@@ -203,6 +205,7 @@ Lists, the tree, and detail views are interactive when stdin and stdout are a te
 | `s`            | set state (work items)                  |
 | `a`            | assign to me (work items)               |
 | `c`            | comment (work items) / checkout (PRs)   |
+| `b`            | create and switch to the work item's branch (list, tree) |
 | `w`            | create worktree                         |
 | `p`            | go to parent (work item details)        |
 | `a` / `x`      | approve / reject a pending release approval (release, my approvals) |

@@ -158,7 +158,7 @@ func (t *TreeView) SetSize(w, h int) {
 }
 
 func (t *TreeView) Help() []key.Binding {
-	return []key.Binding{keyEnter, keyNewChild, keyMoveUp, keyMoveDown, keyOpen, keyCollapse, keyExpand, keyToggle, keyState, keyAssign, keyWorktree,
+	return []key.Binding{keyEnter, keyNewChild, keyMoveUp, keyMoveDown, keyOpen, keyCollapse, keyExpand, keyToggle, keyState, keyAssign, keyBranch, keyWorktree,
 		keyCopy, keyExpandAll, keyCollapseAll, keyRefresh, keyUp, keyDown, keyPgUp, keyPgDown}
 }
 
@@ -387,6 +387,8 @@ func (t *TreeView) Update(msg tea.Msg) (Screen, tea.Cmd) {
 			return t, t.act.changeState(w)
 		case key.Matches(msg, keyAssign):
 			return t, t.act.assignToMe(w)
+		case key.Matches(msg, keyBranch):
+			return t, t.act.branch(w)
 		case key.Matches(msg, keyWorktree):
 			return t, t.act.worktree(w)
 		}

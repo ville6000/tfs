@@ -59,6 +59,7 @@ type Table struct {
 	filter    textinput.Model
 	filtering bool
 	empty     string
+	blurred   bool
 }
 
 // NewTable creates a table with the given columns.
@@ -115,6 +116,10 @@ func (t *Table) SetSize(w, h int) {
 	t.filter.SetWidth(max(10, w-20))
 	t.clamp()
 }
+
+// SetFocused tells the table whether it has the keyboard; an unfocused table marks its selected
+// row quietly. Tables are focused by default.
+func (t *Table) SetFocused(focused bool) { t.blurred = !focused }
 
 // Filtering reports whether the filter input has focus.
 func (t Table) Filtering() bool { return t.filtering }
@@ -248,13 +253,16 @@ func (t Table) renderLine(cells []string, styles []lipgloss.Style, widths []int,
 		if i < len(styles) {
 			st = styles[i]
 		}
-		if selected {
+		if selected && !t.blurred {
 			st = st.Bold(true)
 		}
 		parts[i] = st.Render(text)
 	}
 	marker := "  "
-	if selected {
+	switch {
+	case selected && t.blurred:
+		marker = ui.Muted.Render("▌ ")
+	case selected:
 		marker = ui.Accent.Render("▌ ")
 	}
 	return marker + strings.Join(parts, strings.Repeat(" ", colGap))

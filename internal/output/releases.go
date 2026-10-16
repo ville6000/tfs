@@ -45,6 +45,9 @@ func Releases(w io.Writer, rels []domain.Release, width int) {
 func Release(w io.Writer, r domain.Release) {
 	lipgloss.Fprintln(w, ui.Bold.Render(r.Name)+"  "+ui.Accent.Render(r.Pipeline)+ui.Muted.Render(
 		fmt.Sprintf("  ·  #%d  ·  by %s  ·  %s", r.ID, ui.OrDash(r.CreatedBy), ui.FormatTime(r.Created))))
+	if a := ui.ReleaseArtifacts(r); a != "" {
+		lipgloss.Fprintln(w, a)
+	}
 	if d := strings.TrimSpace(r.Description); d != "" {
 		lipgloss.Fprintln(w, d)
 	}
@@ -62,6 +65,20 @@ func Release(w io.Writer, r domain.Release) {
 		}
 	}
 	Table(w, []string{"STAGE", "STATUS", "WAITING FOR", "UPDATED"}, cells, 0)
+}
+
+// ReleaseChanges prints the work items a stage gets with a release.
+func ReleaseChanges(w io.Writer, ch domain.ReleaseChanges, width int) {
+	lipgloss.Fprintln(w)
+	lipgloss.Fprintln(w, ui.Bold.Render(fmt.Sprintf("%s: %d", ch.Heading(), len(ch.WorkItems))))
+	for _, n := range ch.Notes {
+		lipgloss.Fprintln(w, ui.Warn.Render(n))
+	}
+	if len(ch.WorkItems) == 0 {
+		lipgloss.Fprintln(w, ui.Muted.Render("No new work items."))
+		return
+	}
+	WorkItems(w, ch.WorkItems, width)
 }
 
 // Approvals prints pending release approvals.

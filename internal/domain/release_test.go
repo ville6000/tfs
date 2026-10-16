@@ -72,3 +72,66 @@ func TestMatchPipeline(t *testing.T) {
 		t.Error("any pattern should match")
 	}
 }
+
+func TestFocusStage(t *testing.T) {
+	stages := func(statuses ...string) Release {
+		r := Release{}
+		for _, s := range statuses {
+			r.Stages = append(r.Stages, ReleaseStage{Status: s})
+		}
+		return r
+	}
+	awaiting := stages("succeeded", "notStarted", "notStarted")
+	awaiting.Stages[2].PendingApprovals = []ReleaseApproval{{Status: "pending"}}
+	cases := []struct {
+		rel  Release
+		want int
+	}{
+		{awaiting, 2},
+		{stages("succeeded", "rejected", "notStarted"), 1},
+		{stages("succeeded", "partiallySucceeded"), 1},
+		{Release{}, -1},
+	}
+	for i, c := range cases {
+		if got := c.rel.FocusStage(); got != c.want {
+			t.Errorf("case %d: got %d want %d", i, got, c.want)
+		}
+	}
+}
+
+func TestDeployedBefore(t *testing.T) {
+	prod := func(status string) []ReleaseStage {
+		return []ReleaseStage{{PipelineStageID: 1, Name: "Dev", Status: "succeeded"}, {PipelineStageID: 3, Name: "Prod", Status: status}}
+	}
+	rel := Release{ID: 12, Stages: prod("notStarted")}
+	releases := []Release{
+		{ID: 13, Stages: prod("succeeded")}, // newer than rel
+		rel,
+		{ID: 11, Stages: prod("rejected")},
+		{ID: 9, Stages: prod("succeeded")},
+		{ID: 10, Stages: prod("partiallySucceeded")},
+	}
+	if got := DeployedBefore(rel, rel.Stages[1], releases); got == nil || got.ID != 10 {
+		t.Errorf("Prod: got %+v, want release 10", got)
+	}
+	if got := DeployedBefore(rel, rel.Stages[0], releases); got == nil || got.ID != 11 {
+		t.Errorf("Dev: got %+v, want release 11", got)
+	}
+	// Stages without pipeline ids match by name.
+	byName := ReleaseStage{Name: "prod"}
+	if got := DeployedBefore(rel, byName, []Release{{ID: 5, Stages: []ReleaseStage{{Name: "Prod", Status: "succeeded"}}}}); got == nil || got.ID != 5 {
+		t.Errorf("by name: got %+v", got)
+	}
+	if got := DeployedBefore(rel, rel.Stages[1], []Release{{ID: 11, Stages: prod("notStarted")}}); got != nil {
+		t.Errorf("never deployed: got %+v", got)
+	}
+}
+
+func TestArtifactBuildID(t *testing.T) {
+	if id := (ReleaseArtifact{Type: "Build", VersionID: "42"}).BuildID(); id != 42 {
+		t.Errorf("build: %d", id)
+	}
+	if id := (ReleaseArtifact{Type: "Git", VersionID: "abc"}).BuildID(); id != 0 {
+		t.Errorf("git: %d", id)
+	}
+}

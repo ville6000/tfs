@@ -65,7 +65,8 @@ func (a *App) releases(ctx context.Context, patterns []string, perPipeline int) 
 		cfg, _ := a.config()
 		patterns = cfg.List("releasePipelines")
 	}
-	return &tui.Releases{Client: client, Project: project, Patterns: patterns, Open: browser.Open, PerPipeline: max(1, perPipeline)}, nil
+	return &tui.Releases{Client: client, Project: project, Patterns: patterns, Open: browser.Open, PerPipeline: max(1, perPipeline),
+		Actions: a.actions()}, nil
 }
 
 func (a *App) releaseList(ctx context.Context, flagPipelines []string, top int) error {
@@ -128,11 +129,23 @@ func (a *App) releaseList(ctx context.Context, flagPipelines []string, top int) 
 	return err
 }
 
+// releaseDetail is a release with the work items one of its stages gets, for JSON output.
+type releaseDetail struct {
+	domain.Release
+	Changes *domain.ReleaseChanges `json:"changes,omitempty"`
+}
+
 func (a *App) releaseShowCmd() *cobra.Command {
-	return &cobra.Command{
+	var stageName string
+	cmd := &cobra.Command{
 		Use:   "show <release-id>",
-		Short: "Show a release and its stages (approve and reject from here)",
-		Args:  cobra.ExactArgs(1),
+		Short: "Show a release, its stages and the work items it brings (approve and reject from here)",
+		Long: `Show a release, its stages, and the work items that deploying it brings to a stage: those of
+its builds since the release the stage last deployed. The stage is the first one awaiting
+approval (or not deployed yet) unless --stage names another.
+
+Listing work items also needs the Build and Work Items read scopes.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := parseID(args[0])
 			if err != nil {
@@ -143,19 +156,50 @@ func (a *App) releaseShowCmd() *cobra.Command {
 				return err
 			}
 			if a.interactive() {
-				return tui.Run(tui.NewReleaseView(r, id))
+				v := tui.NewReleaseView(r, id)
+				v.Stage = stageName
+				return tui.Run(v)
 			}
 			rel, err := r.Client.GetRelease(cmd.Context(), r.Project, id)
 			if err != nil {
 				return err
 			}
+			detail := releaseDetail{Release: rel}
+			stage, ok := rel.Stage(stageName)
+			switch {
+			case stageName != "" && !ok:
+				return fmt.Errorf("%s has no stage %q (stages: %s)", rel.Name, stageName, stageNames(rel))
+			case stageName == "" && rel.FocusStage() >= 0:
+				stage, ok = rel.Stages[rel.FocusStage()], true
+			}
+			if ok {
+				ch, err := r.Client.ReleaseChanges(cmd.Context(), r.Project, rel, stage)
+				if err != nil {
+					fmt.Fprintf(a.errOut, "Could not list the work items for %s: %v\n", stage.Name, err)
+				} else {
+					detail.Changes = &ch
+				}
+			}
 			if a.jsonOut {
-				return output.JSON(a.out, rel)
+				return output.JSON(a.out, detail)
 			}
 			output.Release(a.out, rel)
+			if detail.Changes != nil {
+				output.ReleaseChanges(a.out, *detail.Changes, a.width())
+			}
 			return nil
 		},
 	}
+	cmd.Flags().StringVarP(&stageName, "stage", "s", "", "list the work items this stage gets (default: the first awaiting approval)")
+	return cmd
+}
+
+func stageNames(rel domain.Release) string {
+	names := make([]string, len(rel.Stages))
+	for i, s := range rel.Stages {
+		names[i] = s.Name
+	}
+	return strings.Join(names, ", ")
 }
 
 func (a *App) releaseApprovalsCmd() *cobra.Command {
@@ -225,11 +269,7 @@ func (a *App) releaseStage(ctx context.Context, arg, stageName string) (*tui.Rel
 	}
 	stage, ok := rel.Stage(stageName)
 	if !ok {
-		names := make([]string, len(rel.Stages))
-		for i, s := range rel.Stages {
-			names[i] = s.Name
-		}
-		return nil, rel, domain.ReleaseStage{}, fmt.Errorf("%s has no stage %q (stages: %s)", rel.Name, stageName, strings.Join(names, ", "))
+		return nil, rel, domain.ReleaseStage{}, fmt.Errorf("%s has no stage %q (stages: %s)", rel.Name, stageName, stageNames(rel))
 	}
 	return r, rel, stage, nil
 }

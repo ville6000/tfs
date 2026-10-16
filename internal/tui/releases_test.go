@@ -56,6 +56,11 @@ func TestReleaseViewActions(t *testing.T) {
 	if !strings.Contains(view, "awaiting approval") || !strings.Contains(view, "Release Managers") {
 		t.Errorf("view:\n%s", view)
 	}
+	// The view starts on the stage awaiting approval.
+	if s, _ := v.selectedStage(); s.Name != "Prod" {
+		t.Errorf("starts on %q", s.Name)
+	}
+	v.Update(press("k")) // Dev
 	// Dev is not waiting for anything.
 	_, cmd := v.Update(press("a"))
 	if msg, ok := run(cmd).(StatusMsg); !ok || !strings.Contains(msg.Text, "not waiting") {
@@ -70,6 +75,69 @@ func TestReleaseViewActions(t *testing.T) {
 	v.Update(press("j")) // Prod
 	if _, cmd := v.Update(press("x")); cmd == nil {
 		t.Error("reject on a pending stage should start the approval lookup")
+	}
+}
+
+func TestReleaseViewWorkItems(t *testing.T) {
+	v := NewReleaseView(&Releases{}, 11)
+	v.SetSize(120, 24)
+	if _, cmd := v.Update(releaseLoadedMsg{screen: v.sid, release: sampleRelease()}); cmd == nil {
+		t.Fatal("loading the release should load the selected stage's work items")
+	}
+	if !strings.Contains(ansi.Strip(v.View()), "Work items for Prod") {
+		t.Errorf("loading view:\n%s", ansi.Strip(v.View()))
+	}
+	v.Update(releaseChangesMsg{screen: v.sid, stageID: 2, changes: domain.ReleaseChanges{
+		Stage: "Prod", SinceID: 9, Since: "Release-9", Notes: []string{"_scripts: Git artifacts are not compared"},
+		WorkItems: []domain.WorkItem{
+			{ID: 501, Type: "Bug", State: "Resolved", Title: "Fix login", URL: "https://tfs/wi/501"},
+			{ID: 502, Type: "User Story", State: "Closed", Title: "Sign in with SSO"},
+		},
+	}})
+	view := ansi.Strip(v.View())
+	for _, want := range []string{"Work items new to Prod since Release-9", "Git artifacts are not compared", "501", "Fix login", "Sign in with SSO", "1/2"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("missing %q in:\n%s", want, view)
+		}
+	}
+	if n := strings.Count(view, "\n") + 1; n > 24 {
+		t.Errorf("view is %d lines, more than its 24", n)
+	}
+
+	// Moving to Dev loads its work items once; coming back to Prod uses what was loaded.
+	if _, cmd := v.Update(press("k")); cmd == nil {
+		t.Error("Dev's work items should load")
+	}
+	if _, cmd := v.Update(press("j")); cmd != nil {
+		t.Error("Prod's work items are already loaded")
+	}
+
+	var opened string
+	v.r.Open = func(u string) error { opened = u; return nil }
+	v.Update(press("tab"))
+	if !v.onItems {
+		t.Fatal("tab moves to the work items")
+	}
+	v.Update(press("o"))
+	if opened != "https://tfs/wi/501" {
+		t.Errorf("o opened %q", opened)
+	}
+	_, cmd := v.Update(press("enter"))
+	if push, ok := run(cmd).(PushMsg); !ok {
+		t.Errorf("enter: %#v", run(cmd))
+	} else if d, ok := push.Screen.(*WorkItemDetail); !ok || d.id != 501 {
+		t.Errorf("enter pushed %#v", push.Screen)
+	}
+	v.Update(press("j"))
+	if w, _ := v.selectedItem(); w.ID != 502 {
+		t.Errorf("j on the work items selects %d", w.ID)
+	}
+	if s, _ := v.selectedStage(); s.Name != "Prod" {
+		t.Errorf("moving in the work items changed the stage to %q", s.Name)
+	}
+	// Approving still acts on the stage.
+	if _, cmd := v.Update(press("a")); cmd == nil {
+		t.Error("a should approve Prod from the work item list too")
 	}
 }
 

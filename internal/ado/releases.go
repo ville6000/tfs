@@ -1,15 +1,19 @@
 package ado
 
 import (
+	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ville6000/tfs/internal/domain"
 )
@@ -78,6 +82,52 @@ type releaseResponse struct {
 		PreDeployApprovals      []approvalResponse `json:"preDeployApprovals"`
 		PostDeployApprovals     []approvalResponse `json:"postDeployApprovals"`
 	} `json:"environments"`
+	Artifacts []artifactResponse `json:"artifacts"`
+}
+
+type artifactResponse struct {
+	Alias               string               `json:"alias"`
+	Type                string               `json:"type"`
+	IsPrimary           bool                 `json:"isPrimary"`
+	DefinitionReference map[string]sourceRef `json:"definitionReference"`
+}
+
+// sourceRef is a value of an artifact's definition reference. What the values hold depends on the
+// artifact type, so it decodes leniently: anything unexpected becomes empty.
+type sourceRef struct{ ID, Name string }
+
+func (s *sourceRef) UnmarshalJSON(b []byte) error {
+	var v struct {
+		ID   any `json:"id"`
+		Name any `json:"name"`
+	}
+	if json.Unmarshal(b, &v) == nil {
+		s.ID, s.Name = scalar(v.ID), scalar(v.Name)
+	}
+	return nil
+}
+
+func scalar(v any) string {
+	switch v := v.(type) {
+	case string:
+		return v
+	case float64:
+		return strconv.FormatFloat(v, 'f', -1, 64)
+	}
+	return ""
+}
+
+func (a artifactResponse) toDomain() domain.ReleaseArtifact {
+	ref := a.DefinitionReference
+	branch := ref["branch"].Name
+	if branch == "" {
+		branch = ref["branch"].ID
+	}
+	return domain.ReleaseArtifact{
+		Alias: a.Alias, Type: a.Type, Primary: a.IsPrimary, Project: ref["project"].ID,
+		DefinitionID: ref["definition"].ID, Definition: ref["definition"].Name,
+		VersionID: ref["version"].ID, Version: ref["version"].Name, Branch: domain.TrimRef(branch),
+	}
 }
 
 func (c *Client) mapRelease(project string, r releaseResponse) domain.Release {
@@ -105,6 +155,19 @@ func (c *Client) mapRelease(project string, r releaseResponse) domain.Release {
 		rel.Stages = append(rel.Stages, s)
 	}
 	slices.SortStableFunc(rel.Stages, func(a, b domain.ReleaseStage) int { return a.Rank - b.Rank })
+	for _, a := range r.Artifacts {
+		rel.Artifacts = append(rel.Artifacts, a.toDomain())
+	}
+	// The primary artifact first, as the web UI shows it.
+	slices.SortStableFunc(rel.Artifacts, func(a, b domain.ReleaseArtifact) int {
+		switch {
+		case a.Primary == b.Primary:
+			return 0
+		case a.Primary:
+			return -1
+		}
+		return 1
+	})
 	return rel
 }
 
@@ -152,15 +215,18 @@ func (c *Client) ListReleasePipelines(ctx context.Context, project string) ([]do
 
 // ListReleases lists a pipeline's releases, newest first.
 func (c *Client) ListReleases(ctx context.Context, project string, pipelineID, top int) ([]domain.Release, error) {
-	var payload struct {
-		Value []releaseResponse `json:"value"`
-	}
-	u := c.url("/"+seg(project)+"/_apis/release/releases", url.Values{
+	return c.listReleases(ctx, project, url.Values{
 		"definitionId": {strconv.Itoa(pipelineID)},
 		"$top":         {strconv.Itoa(top)},
 		"$expand":      {"environments"},
 	})
-	if err := c.get(ctx, u, &payload); err != nil {
+}
+
+func (c *Client) listReleases(ctx context.Context, project string, q url.Values) ([]domain.Release, error) {
+	var payload struct {
+		Value []releaseResponse `json:"value"`
+	}
+	if err := c.get(ctx, c.url("/"+seg(project)+"/_apis/release/releases", q), &payload); err != nil {
 		return nil, err
 	}
 	out := make([]domain.Release, len(payload.Value))
@@ -180,6 +246,134 @@ func (c *Client) GetRelease(ctx context.Context, project string, id int) (domain
 		return domain.Release{}, err
 	}
 	return c.mapRelease(project, r), nil
+}
+
+// deployedBefore finds the newest release before rel that deployed to the stage.
+func (c *Client) deployedBefore(ctx context.Context, project string, rel domain.Release, stage domain.ReleaseStage) (*domain.Release, error) {
+	q := url.Values{
+		"definitionId": {strconv.Itoa(rel.PipelineID)},
+		"$top":         {"100"},
+		"$expand":      {"environments,artifacts"},
+		"queryOrder":   {"descending"},
+	}
+	if !rel.Created.IsZero() {
+		q.Set("maxCreatedTime", rel.Created.UTC().Format(time.RFC3339Nano))
+	}
+	queries := []url.Values{q}
+	if stage.PipelineStageID != 0 {
+		// Ask for the releases whose deployment to the stage succeeded or partially succeeded
+		// first; checking all recent releases is the fallback should the server filter differently.
+		deployed := maps.Clone(q)
+		deployed.Set("definitionEnvironmentId", strconv.Itoa(stage.PipelineStageID))
+		deployed.Set("environmentStatusFilter", "132")
+		queries = []url.Values{deployed, q}
+	}
+	for _, q := range queries {
+		rels, err := c.listReleases(ctx, project, q)
+		if err != nil {
+			return nil, err
+		}
+		if base := domain.DeployedBefore(rel, stage, rels); base != nil {
+			return base, nil
+		}
+	}
+	return nil, nil
+}
+
+// buildWorkItemIDs lists the work items of the builds after from up to and including to, or, when
+// from is 0, the work items associated with build to.
+func (c *Client) buildWorkItemIDs(ctx context.Context, project string, from, to int) ([]int, error) {
+	u := c.url(fmt.Sprintf("/%s/_apis/build/builds/%d/workitems", seg(project), to), url.Values{"$top": {"1000"}})
+	if from != 0 {
+		u = c.url("/"+seg(project)+"/_apis/build/workitems", url.Values{
+			"fromBuildId": {strconv.Itoa(from)},
+			"toBuildId":   {strconv.Itoa(to)},
+			"$top":        {"1000"},
+			"api-version": {c.apiVersion + "-preview.2"},
+		})
+	}
+	var payload struct {
+		Value []struct {
+			ID json.RawMessage `json:"id"`
+		} `json:"value"`
+	}
+	if err := c.get(ctx, u, &payload); err != nil {
+		return nil, err
+	}
+	ids := make([]int, 0, len(payload.Value))
+	for _, r := range payload.Value {
+		if id, err := strconv.Atoi(strings.Trim(string(r.ID), `"`)); err == nil && id > 0 {
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
+}
+
+// ReleaseChanges lists the work items that deploying rel to the stage brings there: for each build
+// artifact, those of the builds after the one the stage last deployed. When no earlier deployment
+// to the stage is found, it lists the work items associated with the release's builds.
+func (c *Client) ReleaseChanges(ctx context.Context, project string, rel domain.Release, stage domain.ReleaseStage) (domain.ReleaseChanges, error) {
+	out := domain.ReleaseChanges{Stage: stage.Name}
+	base, err := c.deployedBefore(ctx, project, rel, stage)
+	if err != nil {
+		return out, err
+	}
+	if base != nil {
+		out.SinceID, out.Since = base.ID, base.Name
+	}
+	if len(rel.Artifacts) == 0 {
+		out.Notes = append(out.Notes, "the release has no artifacts")
+	}
+	var ids []int
+	seen := map[int]bool{}
+	for _, a := range rel.Artifacts {
+		to := a.BuildID()
+		if to == 0 {
+			out.Notes = append(out.Notes, fmt.Sprintf("%s: %s artifacts are not compared", a.Alias, a.Type))
+			continue
+		}
+		from := 0
+		if base != nil {
+			if b, ok := base.Artifact(a.Alias); ok && b.DefinitionID == a.DefinitionID {
+				from = b.BuildID()
+				if from > to {
+					out.Notes = append(out.Notes, fmt.Sprintf("%s: build %s is older than %s on %s", a.Alias, a.Version, b.Version, stage.Name))
+					continue
+				}
+			}
+		}
+		if from == to {
+			continue
+		}
+		got, err := c.buildWorkItemIDs(ctx, cmp.Or(a.Project, project), from, to)
+		if err != nil {
+			out.Notes = append(out.Notes, fmt.Sprintf("%s: %v", a.Alias, err))
+			continue
+		}
+		for _, id := range got {
+			if !seen[id] {
+				seen[id] = true
+				ids = append(ids, id)
+			}
+		}
+	}
+	byID, err := c.batch(ctx, ids)
+	if err != nil {
+		return out, err
+	}
+	out.WorkItems = make([]domain.WorkItem, 0, len(byID))
+	for _, id := range ids {
+		if r, ok := byID[id]; ok {
+			out.WorkItems = append(out.WorkItems, c.mapWorkItem(r))
+		}
+	}
+	if n := len(ids) - len(out.WorkItems); n > 0 {
+		out.Notes = append(out.Notes, fmt.Sprintf("%d work item(s) could not be read", n))
+	}
+	slices.SortStableFunc(out.WorkItems, func(a, b domain.WorkItem) int {
+		return cmp.Or(strings.Compare(a.Type, b.Type), a.ID-b.ID)
+	})
+	return out, nil
 }
 
 // me is the authenticated user, as the release service identifies them.

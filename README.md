@@ -29,7 +29,8 @@ enter details • o open in browser • s set state • a assign to me • w wor
 - **Builds** — recent runs of your build pipelines (classic and YAML) with live status, each
   build's stages, jobs and tasks with their errors, and task logs.
 - **Releases** — a dashboard of your classic release pipelines showing what is deployed on each
-  stage, release history, and approving or rejecting pending approvals.
+  stage, release history, the work items a release brings to a stage, and approving or rejecting
+  pending approvals.
 - **Branches and worktrees** — `tfs wi branch 123` creates a branch named after the work item
   from the latest default branch and switches to it; `tfs wi worktree 123` puts it in a git
   worktree next to your repository instead.
@@ -74,6 +75,7 @@ only what you use:
 | Code — Read                | `pr …`                                                    |
 | Build — Read               | `build …`                                                 |
 | Release — Read             | `release` dashboard, history, `release show`, `release approvals` |
+| Build — Read, Work Items — Read | the work items of a release (`release show`)        |
 | Release — Read, write, execute & manage | `release approve`, `release reject`             |
 
 `pr checkout` and `wi worktree` run your local `git`, which uses your normal git credentials.
@@ -161,7 +163,8 @@ Classic release pipelines (Pipelines → Releases).
 ```bash
 tfs release                                  # dashboard: newest release on every stage of each pipeline
 tfs release --pipeline frontend              # one pipeline's release history
-tfs release show 142                         # a release and its stages
+tfs release show 142                         # a release, its stages and the work items it brings
+tfs release show 142 --stage Test            # … the work items it brings to Test
 tfs release approvals                        # approvals waiting for you (including your groups')
 tfs release approve 142 --stage Prod -m "Smoke tests green"
 tfs release reject 142 --stage Prod -m "Blocked by incident"
@@ -170,6 +173,14 @@ tfs release reject 142 --stage Prod -m "Blocked by incident"
 The dashboard lists, for each stage, the newest release that reached it, so you can see what is
 deployed where, e.g. `Dev ● Release-12  Test ✔ Release-11  Prod ⏸ Release-11`
 (✔ succeeded, ● deploying, ⏸ awaiting approval, ✘ failed or rejected, ○ not started).
+
+A release shows the work items that deploying it brings to a stage: for each build it deploys,
+the work items of the builds since the one on that stage, i.e. since the last release deployed
+there. The list follows the stage under the cursor and starts on the first stage awaiting
+approval, so you see what you are approving. `tab` moves into the list; `enter` shows a work
+item and `o` opens it. Artifacts other than builds (Git, GitHub, Jenkins, …) are not compared;
+the list says so. When no earlier deployment to the stage is found, it lists the work items
+associated with the release's own builds.
 
 Limit it to the pipelines you work on with `--pipeline`, or permanently:
 
@@ -215,6 +226,7 @@ Lists, the tree, and detail views are interactive when stdin and stdout are a te
 | `a` / `x`      | approve / reject a pending release approval (release, my approvals) |
 | `P`            | my pending approvals (release dashboard) |
 | `f`            | next failed task (build)                |
+| `tab`          | switch between stages and work items (release) |
 | `←`/`→`, `space`, `e`, `z` | collapse, expand, toggle, expand all, collapse all (tree) |
 | `r`            | refresh                                 |
 | `esc`          | back                                    |

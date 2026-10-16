@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/ville6000/tfs/internal/domain"
 )
 
 func TestReleases(t *testing.T) {
@@ -86,5 +88,132 @@ func TestReleases(t *testing.T) {
 	last := (*reqs)[len(*reqs)-1]
 	if last.Method != "PATCH" || last.Path != "/Col/P/_apis/release/approvals/900" || strings.TrimSpace(last.Body) != `{"comments":"not today","status":"rejected"}` {
 		t.Errorf("approval update %+v", last)
+	}
+}
+
+func buildArtifact(alias, definition, buildID, number string) map[string]any {
+	return map[string]any{"alias": alias, "type": "Build", "isPrimary": alias == "_web", "definitionReference": map[string]any{
+		"project":    map[string]any{"id": "proj-guid", "name": "Other"},
+		"definition": map[string]any{"id": definition, "name": alias},
+		"version":    map[string]any{"id": buildID, "name": number},
+		"branch":     map[string]any{"id": "refs/heads/main", "name": "refs/heads/main"},
+		// values vary by artifact type; odd ones must not break decoding
+		"IsMultiDefinitionType": map[string]any{"id": false, "name": nil},
+	}}
+}
+
+func TestReleaseChanges(t *testing.T) {
+	stages := func(prod string) []any {
+		return []any{
+			map[string]any{"id": 1, "definitionEnvironmentId": 20, "name": "Dev", "rank": 1, "status": "succeeded"},
+			map[string]any{"id": 2, "definitionEnvironmentId": 21, "name": "Prod", "rank": 2, "status": prod},
+		}
+	}
+	filtered := 0
+	c, reqs := server(t, func(r *http.Request, _ string) (int, any) {
+		p, q := r.URL.Path, r.URL.Query()
+		switch {
+		case strings.HasSuffix(p, "/_apis/release/releases/12"):
+			return 200, map[string]any{"id": 12, "name": "Release-12", "releaseDefinition": map[string]any{"id": 2, "name": "web"},
+				"createdOn": "2026-10-16T08:00:00Z", "environments": stages("notStarted"),
+				"artifacts": []any{
+					buildArtifact("_api", "8", "140", "20261016.2"),
+					buildArtifact("_web", "7", "130", "20261016.1"),
+					map[string]any{"alias": "_scripts", "type": "Git", "definitionReference": map[string]any{"version": map[string]any{"id": "abc"}}},
+				}}
+		case strings.HasSuffix(p, "/_apis/release/releases"):
+			if q.Get("environmentStatusFilter") != "" {
+				filtered++
+				return 200, map[string]any{"value": []any{}} // a server that filters differently
+			}
+			return 200, map[string]any{"value": []any{
+				map[string]any{"id": 11, "name": "Release-11", "environments": stages("rejected"),
+					"artifacts": []any{buildArtifact("_web", "7", "125", "x"), buildArtifact("_api", "8", "135", "x")}},
+				map[string]any{"id": 10, "name": "Release-10", "environments": stages("succeeded"),
+					"artifacts": []any{buildArtifact("_web", "7", "120", "20261010.1"), buildArtifact("_api", "8", "140", "20261016.2")}},
+			}}
+		case strings.HasSuffix(p, "/proj-guid/_apis/build/workitems"):
+			return 200, map[string]any{"count": 3, "value": []any{
+				map[string]any{"id": "501", "url": "u"}, map[string]any{"id": "502", "url": "u"}, map[string]any{"id": "503", "url": "u"}}}
+		case strings.HasSuffix(p, "/_apis/wit/workitems"):
+			return 200, map[string]any{"value": []any{
+				map[string]any{"id": 502, "fields": map[string]any{"System.Title": "Fix login", "System.WorkItemType": "Bug", "System.State": "Resolved"}},
+				map[string]any{"id": 501, "fields": map[string]any{"System.Title": "Sign in with SSO", "System.WorkItemType": "User Story", "System.State": "Closed"}},
+				nil, // 503 cannot be read
+			}}
+		}
+		t.Errorf("unexpected request %s", r.URL)
+		return 404, map[string]any{"message": "not found"}
+	})
+	ctx := context.Background()
+	rel, err := c.GetRelease(ctx, "P", 12)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rel.Artifacts) != 3 || rel.Artifacts[0].Alias != "_web" || rel.Artifacts[0].Branch != "main" || rel.Artifacts[0].BuildID() != 130 || rel.Artifacts[0].Project != "proj-guid" {
+		t.Fatalf("artifacts %+v", rel.Artifacts)
+	}
+
+	ch, err := c.ReleaseChanges(ctx, "P", rel, rel.Stages[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ch.SinceID != 10 || ch.Since != "Release-10" || ch.Stage != "Prod" {
+		t.Errorf("baseline %+v", ch)
+	}
+	if filtered != 1 {
+		t.Errorf("the server-filtered query should be tried first, %d", filtered)
+	}
+	if len(ch.WorkItems) != 2 || ch.WorkItems[0].Title != "Fix login" || ch.WorkItems[1].ID != 501 {
+		t.Errorf("work items %+v", ch.WorkItems)
+	}
+	if want := []string{"_scripts: Git artifacts are not compared", "1 work item(s) could not be read"}; strings.Join(ch.Notes, "|") != strings.Join(want, "|") {
+		t.Errorf("notes %q", ch.Notes)
+	}
+	var between, list []recorded
+	for _, r := range *reqs {
+		switch {
+		case strings.HasSuffix(r.Path, "/_apis/build/workitems"):
+			between = append(between, r)
+		case strings.HasSuffix(r.Path, "/_apis/release/releases"):
+			list = append(list, r)
+		}
+	}
+	// _api deploys the build already on Prod, so only _web is compared.
+	if len(between) != 1 || !strings.Contains(between[0].Query, "fromBuildId=120") || !strings.Contains(between[0].Query, "toBuildId=130") ||
+		!strings.Contains(between[0].Query, "api-version=6.0-preview.2") {
+		t.Errorf("work items between builds: %+v", between)
+	}
+	if len(list) != 2 || !strings.Contains(list[0].Query, "definitionEnvironmentId=21") || !strings.Contains(list[0].Query, "maxCreatedTime=2026-10-16T08") ||
+		!strings.Contains(list[1].Query, "$expand=environments,artifacts") || strings.Contains(list[1].Query, "environmentStatusFilter") {
+		t.Errorf("release queries: %+v", list)
+	}
+}
+
+func TestReleaseChangesFirstDeployment(t *testing.T) {
+	c, reqs := server(t, func(r *http.Request, _ string) (int, any) {
+		switch p := r.URL.Path; {
+		case strings.HasSuffix(p, "/_apis/release/releases"):
+			return 200, map[string]any{"value": []any{}}
+		case strings.HasSuffix(p, "/_apis/build/builds/130/workitems"):
+			return 200, map[string]any{"value": []any{map[string]any{"id": "501"}}}
+		case strings.HasSuffix(p, "/_apis/wit/workitems"):
+			return 200, map[string]any{"value": []any{map[string]any{"id": 501, "fields": map[string]any{"System.Title": "First"}}}}
+		}
+		t.Errorf("unexpected request %s", r.URL)
+		return 404, nil
+	})
+	rel := domain.Release{ID: 12, PipelineID: 2, Stages: []domain.ReleaseStage{{ID: 2, Name: "Prod"}},
+		Artifacts: []domain.ReleaseArtifact{{Alias: "_web", Type: "Build", VersionID: "130"}}}
+	ch, err := c.ReleaseChanges(context.Background(), "P", rel, rel.Stages[0])
+	if err != nil || ch.SinceID != 0 || len(ch.WorkItems) != 1 || ch.WorkItems[0].Title != "First" {
+		t.Fatalf("%+v %v", ch, err)
+	}
+	if !strings.Contains(ch.Heading(), "no earlier deployment to Prod") {
+		t.Errorf("heading %q", ch.Heading())
+	}
+	// Without a pipeline stage id there is no server-side filter to try.
+	if n := len(*reqs); n != 3 || !strings.Contains((*reqs)[1].Path, "/P/_apis/build/builds/130/workitems") {
+		t.Errorf("requests %+v", *reqs)
 	}
 }

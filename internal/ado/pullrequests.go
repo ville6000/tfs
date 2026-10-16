@@ -110,6 +110,111 @@ func (c *Client) GetPullRequest(ctx context.Context, id int) (domain.PullRequest
 	return c.mapPullRequest(r, ""), nil
 }
 
+type filePosition struct {
+	Line int `json:"line"`
+}
+
+type threadResponse struct {
+	ID              int     `json:"id"`
+	Status          string  `json:"status"`
+	PublishedDate   apiTime `json:"publishedDate"`
+	LastUpdatedDate apiTime `json:"lastUpdatedDate"`
+	IsDeleted       bool    `json:"isDeleted"`
+	ThreadContext   *struct {
+		FilePath       string        `json:"filePath"`
+		RightFileStart *filePosition `json:"rightFileStart"`
+		LeftFileStart  *filePosition `json:"leftFileStart"`
+	} `json:"threadContext"`
+	Comments []prCommentResponse `json:"comments"`
+}
+
+func (r threadResponse) toDomain() domain.CommentThread {
+	t := domain.CommentThread{
+		ID:        r.ID,
+		Status:    r.Status,
+		Published: r.PublishedDate.Time,
+		Updated:   r.LastUpdatedDate.Time,
+		IsDeleted: r.IsDeleted,
+		Comments:  make([]domain.Comment, len(r.Comments)),
+	}
+	if tc := r.ThreadContext; tc != nil {
+		t.FilePath = tc.FilePath
+		switch {
+		case tc.RightFileStart != nil:
+			t.Line = tc.RightFileStart.Line
+		case tc.LeftFileStart != nil:
+			t.Line = tc.LeftFileStart.Line
+		}
+	}
+	for i, cm := range r.Comments {
+		t.Comments[i] = cm.toDomain()
+	}
+	return t
+}
+
+type prCommentResponse struct {
+	ID              int    `json:"id"`
+	ParentCommentID int    `json:"parentCommentId"`
+	Content         string `json:"content"`
+	CommentType     string `json:"commentType"`
+	IsDeleted       bool   `json:"isDeleted"`
+	Author          struct {
+		DisplayName string `json:"displayName"`
+	} `json:"author"`
+	PublishedDate          apiTime `json:"publishedDate"`
+	LastUpdatedDate        apiTime `json:"lastUpdatedDate"`
+	LastContentUpdatedDate apiTime `json:"lastContentUpdatedDate"`
+	UsersLiked             []struct {
+		DisplayName string `json:"displayName"`
+	} `json:"usersLiked"`
+	Links struct {
+		Self struct {
+			Href string `json:"href"`
+		} `json:"self"`
+	} `json:"_links"`
+}
+
+func (r prCommentResponse) toDomain() domain.Comment {
+	c := domain.Comment{
+		ID:             r.ID,
+		Author:         r.Author.DisplayName,
+		Created:        r.PublishedDate.Time,
+		Text:           r.Content,
+		ParentID:       r.ParentCommentID,
+		Type:           r.CommentType,
+		Updated:        r.LastUpdatedDate.Time,
+		ContentUpdated: r.LastContentUpdatedDate.Time,
+		IsDeleted:      r.IsDeleted,
+		URL:            r.Links.Self.Href,
+	}
+	if c.Author == "" {
+		c.Author = "unknown"
+	}
+	for _, u := range r.UsersLiked {
+		c.LikedBy = append(c.LikedBy, u.DisplayName)
+	}
+	return c
+}
+
+// PullRequestThreads fetches every comment thread on a pull request, including system and deleted ones.
+func (c *Client) PullRequestThreads(ctx context.Context, project, repo string, id int) ([]domain.CommentThread, error) {
+	if id <= 0 {
+		return nil, fmt.Errorf("pull request id must be positive")
+	}
+	var payload struct {
+		Value []threadResponse `json:"value"`
+	}
+	u := c.url(fmt.Sprintf("/%s/_apis/git/repositories/%s/pullRequests/%d/threads", seg(project), seg(repo), id), nil)
+	if err := c.get(ctx, u, &payload); err != nil {
+		return nil, err
+	}
+	threads := make([]domain.CommentThread, len(payload.Value))
+	for i, r := range payload.Value {
+		threads[i] = r.toDomain()
+	}
+	return threads, nil
+}
+
 // Repository is a git repository on the server.
 type Repository struct {
 	ID            string

@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/ville6000/tfs/internal/domain"
 )
 
 func TestHTMLToMarkdownKeepsBreaks(t *testing.T) {
@@ -44,5 +46,35 @@ func TestFormatDuration(t *testing.T) {
 		if got := FormatDuration(d); got != want {
 			t.Errorf("%v: %q", d, got)
 		}
+	}
+}
+
+func TestRenderPullRequestComments(t *testing.T) {
+	pr := domain.PullRequest{ID: 7, Title: "T", Repository: "R"}
+	if out := ansi.Strip(RenderPullRequest(pr, 80, false)); strings.Contains(out, "Comments") {
+		t.Errorf("comments section without --comments:\n%s", out)
+	}
+
+	pr.Threads = []domain.CommentThread{
+		{ID: 1, Status: "active", FilePath: "/src/main.go", Line: 42, Comments: []domain.Comment{
+			{Author: "Alice", Text: "Why this?", Type: "text"},
+			{Author: "Bob", Text: "Because.", Type: "text", ParentID: 1},
+		}},
+		{ID: 2, Status: "fixed", Comments: []domain.Comment{{Author: "Carol", Text: "General note", Type: "text"}}},
+		{ID: 3, Comments: []domain.Comment{{Author: "System", Text: "voted approve", Type: "system"}}},
+	}
+	out := ansi.Strip(RenderPullRequest(pr, 80, false))
+	for _, want := range []string{"Comments (2)", "/src/main.go:42 · active", "Alice", "Why this?", "Bob", "Because.", "General · fixed", "General note"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "voted approve") {
+		t.Errorf("system comment rendered:\n%s", out)
+	}
+
+	pr.Threads = []domain.CommentThread{}
+	if out := ansi.Strip(RenderPullRequest(pr, 80, false)); !strings.Contains(out, "Comments (0)") || !strings.Contains(out, "No comments.") {
+		t.Errorf("empty comments:\n%s", out)
 	}
 }

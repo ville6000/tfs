@@ -306,6 +306,18 @@ func ReleaseStages(r domain.Release) string {
 	return strings.Join(parts, "  ")
 }
 
+// ReleaseArtifacts renders what a release deploys on one line: "_frontend-ci 20261016.3 (main)".
+func ReleaseArtifacts(r domain.Release) string {
+	parts := make([]string, len(r.Artifacts))
+	for i, a := range r.Artifacts {
+		parts[i] = a.Alias + " " + Bold.Render(OrDash(a.Version))
+		if a.Branch != "" {
+			parts[i] += Muted.Render(" (" + a.Branch + ")")
+		}
+	}
+	return strings.Join(parts, Muted.Render("  ·  "))
+}
+
 // StageDeployments renders what is deployed where: "Dev ● Release-12  Prod ✔ Release-10".
 func StageDeployments(ds []domain.StageDeployment) string {
 	parts := make([]string, len(ds))

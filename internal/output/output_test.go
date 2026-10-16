@@ -56,3 +56,22 @@ func TestTreeAssignee(t *testing.T) {
 		t.Errorf("got:\n%q\nwant:\n%q", buf.String(), want)
 	}
 }
+
+func TestReleaseChangesPlain(t *testing.T) {
+	var buf bytes.Buffer
+	ReleaseChanges(&buf, domain.ReleaseChanges{Stage: "Prod", SinceID: 9, Since: "Release-9", Notes: []string{"_scripts: Git artifacts are not compared"},
+		WorkItems: []domain.WorkItem{{ID: 501, Type: "Bug", State: "Resolved", Title: "Fix login"}}}, 80)
+	want := "\nWork items new to Prod since Release-9: 1\n" +
+		"_scripts: Git artifacts are not compared\n" +
+		"ID   TYPE  STATE     ASSIGNED  TITLE\n" +
+		"501  Bug   Resolved  —         Fix login\n"
+	if got := buf.String(); got != want {
+		t.Errorf("got:\n%q\nwant:\n%q", got, want)
+	}
+
+	buf.Reset()
+	ReleaseChanges(&buf, domain.ReleaseChanges{Stage: "Prod"}, 80)
+	if got := buf.String(); !strings.Contains(got, "no earlier deployment to Prod found): 0") || !strings.Contains(got, "No new work items.") {
+		t.Errorf("empty: %q", got)
+	}
+}

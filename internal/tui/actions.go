@@ -14,9 +14,11 @@ import (
 
 // Actions are the side effects screens can trigger.
 type Actions struct {
-	Client     *ado.Client
-	Open       func(url string) error
-	Worktree   func(ctx context.Context, w domain.WorkItem) (branch, path string, err error)
+	Client   *ado.Client
+	Open     func(url string) error
+	Worktree func(ctx context.Context, w domain.WorkItem) (branch, path string, err error)
+	// Branch creates (or switches to) the work item's branch and describes what it did.
+	Branch     func(ctx context.Context, w domain.WorkItem) (string, error)
 	CheckoutPR func(ctx context.Context, pr domain.PullRequest, worktree bool) (string, error)
 
 	// Team resolves the team whose backlog is reordered in a project.
@@ -107,6 +109,21 @@ func (a *Actions) worktree(w domain.WorkItem) tea.Cmd {
 		}
 		return StatusMsg{Text: fmt.Sprintf("created worktree %s on branch %s", path, branch)}
 	})
+}
+
+func (a *Actions) branch(w domain.WorkItem) tea.Cmd {
+	if a.Branch == nil {
+		return nil
+	}
+	return Busy("creating branch", func() tea.Msg { return a.branchMsg(w) })
+}
+
+func (a *Actions) branchMsg(w domain.WorkItem) tea.Msg {
+	msg, err := a.Branch(context.Background(), w)
+	if err != nil {
+		return StatusMsg{Text: err.Error(), Err: true}
+	}
+	return StatusMsg{Text: msg}
 }
 
 func (a *Actions) comment(id int) tea.Cmd {

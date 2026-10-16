@@ -18,6 +18,7 @@ var (
 	keyState    = key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "set state"))
 	keyAssign   = key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "assign to me"))
 	keyWorktree = key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "worktree"))
+	keyBranch   = key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "branch"))
 	keyComment  = key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "comment"))
 	keyCopy     = key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy url"))
 	keyRefresh  = key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh"))
@@ -87,7 +88,7 @@ func (l *WorkItemList) Help() []key.Binding {
 	if l.Picked != nil {
 		return append([]key.Binding{keyPick}, l.table.Help()[:3]...)
 	}
-	return append([]key.Binding{keyEnter, keyOpen, keyState, keyAssign, keyWorktree, keyComment, keyCopy, keyRefresh}, l.table.Help()...)
+	return append([]key.Binding{keyEnter, keyOpen, keyState, keyAssign, keyBranch, keyWorktree, keyComment, keyCopy, keyRefresh}, l.table.Help()...)
 }
 
 func (l *WorkItemList) selected() (domain.WorkItem, bool) {
@@ -151,6 +152,8 @@ func (l *WorkItemList) Update(msg tea.Msg) (Screen, tea.Cmd) {
 			return l, l.act.changeState(w)
 		case key.Matches(msg, keyAssign):
 			return l, l.act.assignToMe(w)
+		case key.Matches(msg, keyBranch):
+			return l, l.act.branch(w)
 		case key.Matches(msg, keyWorktree):
 			return l, l.act.worktree(w)
 		case key.Matches(msg, keyComment):

@@ -283,3 +283,47 @@ func TestTreeMoveNeedsBacklogOrder(t *testing.T) {
 		t.Errorf("unordered tree must not move: %s", entryIDs(tv))
 	}
 }
+
+func TestBranchKeyInListAndTree(t *testing.T) {
+	var got []int
+	act := &Actions{Branch: func(_ context.Context, w domain.WorkItem) (string, error) {
+		got = append(got, w.ID)
+		if w.ID == 3 {
+			return "", errors.New("dirty working tree")
+		}
+		return "Switched to new branch feature/1-e (from origin/main)", nil
+	}}
+
+	tv := NewTreeView("t", act, nil)
+	tv.SetSize(80, 20)
+	tv.Update(treeLoadedMsg{screen: tv.id, tree: sampleTree()})
+	if _, cmd := tv.Update(press("b")); cmd == nil {
+		t.Fatal("b in the tree should create a branch")
+	}
+	if msg := act.branchMsg(domain.WorkItem{ID: 1}).(StatusMsg); msg.Err || !strings.Contains(msg.Text, "feature/1-e") {
+		t.Errorf("status %+v", msg)
+	}
+	if msg := act.branchMsg(domain.WorkItem{ID: 3}).(StatusMsg); !msg.Err || msg.Text != "dirty working tree" {
+		t.Errorf("error status %+v", msg)
+	}
+
+	l := NewWorkItemList("l", act, nil)
+	l.SetSize(80, 10)
+	l.Update(workItemsLoadedMsg{screen: l.id, items: []domain.WorkItem{{ID: 7, Type: "Task", Title: "x"}}})
+	if _, cmd := l.Update(press("b")); cmd == nil {
+		t.Fatal("b in the list should create a branch")
+	}
+	if !strings.Contains(ansi.Strip(strings.Join(func() []string {
+		var s []string
+		for _, k := range l.Help() {
+			s = append(s, k.Help().Key+" "+k.Help().Desc)
+		}
+		return s
+	}(), " ")), "b branch") {
+		t.Error("list help should mention b branch")
+	}
+	if (&Actions{}).branch(domain.WorkItem{ID: 1}) != nil {
+		t.Error("no Branch action means nothing to do")
+	}
+	_ = got
+}

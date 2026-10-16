@@ -31,8 +31,9 @@ enter details • o open in browser • s set state • a assign to me • w wor
 - **Releases** — a dashboard of your classic release pipelines showing what is deployed on each
   stage, release history, the work items a release brings to a stage, and approving or rejecting
   pending approvals.
-- **Worktrees** — `tfs wi worktree 123` creates a branch named after the work item and a git
-  worktree next to your repository.
+- **Branches and worktrees** — `tfs wi branch 123` creates a branch named after the work item
+  from the latest default branch and switches to it; `tfs wi worktree 123` puts it in a git
+  worktree next to your repository instead.
 - **Interactive when it helps, scriptable when you need it** — TUIs in a terminal; static tables
   when piped or with `--no-tui`; `--json` everywhere.
 - **Per-repository config** layered over your global config.
@@ -41,7 +42,11 @@ Supports Azure DevOps Server 2019 and later (set `apiVersion` to `5.0` for 2019)
 
 ## Install
 
-With Go 1.26+:
+```bash
+brew install ville6000/tap/tfs
+```
+
+Or with Go 1.26+:
 
 ```bash
 go install github.com/ville6000/tfs/cmd/tfs@latest
@@ -99,6 +104,7 @@ tfs wi create                                # interactive form
 tfs wi update 1234 --state active --assigned-to @me
 tfs wi comment 1234 "Retested on staging"
 tfs wi comment 1234 - < notes.md            # read the comment from stdin
+tfs wi branch 1234                           # new branch feature/1234-<slug> from origin's default branch
 tfs wi worktree 1234                         # branch feature/1234-<slug> in ../1234-<slug>
 ```
 
@@ -214,6 +220,7 @@ Lists, the tree, and detail views are interactive when stdin and stdout are a te
 | `s`            | set state (work items)                  |
 | `a`            | assign to me (work items)               |
 | `c`            | comment (work items) / checkout (PRs)   |
+| `b`            | create and switch to the work item's branch (list, tree) |
 | `w`            | create worktree                         |
 | `p`            | go to parent (work item details)        |
 | `a` / `x`      | approve / reject a pending release approval (release, my approvals) |
@@ -299,7 +306,9 @@ The code is organised as:
 - `internal/tui` — Bubble Tea views; `internal/output` — static tables; `internal/ui` — shared styles
 - `internal/cli` — Cobra commands
 
-Releases are built by GoReleaser when a `v*` tag is pushed.
+Releases are built by GoReleaser when a GitHub release is published (with a new `vX.Y.Z`
+tag): it attaches the binaries to the release and updates the Homebrew cask in
+[ville6000/homebrew-tap](https://github.com/ville6000/homebrew-tap).
 
 ## License
 

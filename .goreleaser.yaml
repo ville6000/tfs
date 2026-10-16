@@ -1,4 +1,9 @@
+# Builds the release binaries when a GitHub release is published; see
+# .github/workflows/release.yml. Check locally with `goreleaser check` and
+# `goreleaser release --snapshot --clean`.
 version: 2
+
+project_name: tfs
 
 before:
   hooks:
@@ -15,7 +20,10 @@ builds:
       - -s -w -X main.version={{.Version}}
 
 archives:
-  - formats: [tar.gz]
+  # No version in the name, so the README can link to
+  # releases/latest/download/<name> for whichever release is newest.
+  - name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
     format_overrides:
       - goos: windows
         formats: [zip]
@@ -26,9 +34,33 @@ archives:
 checksum:
   name_template: checksums.txt
 
+# Release notes are written on GitHub when the release is published; only
+# attach the binaries.
 changelog:
-  sort: asc
-  filters:
-    exclude:
-      - "^docs:"
-      - "^test:"
+  disable: true
+
+release:
+  mode: keep-existing
+
+# Publishes Casks/tfs.rb to ville6000/homebrew-tap, so
+# `brew install ville6000/tap/tfs` works. HOMEBREW_TAP_TOKEN is a
+# fine-grained PAT with contents write access to that repo.
+homebrew_casks:
+  - repository:
+      owner: ville6000
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    homepage: https://github.com/ville6000/tfs
+    description: Terminal client for on-premises Azure DevOps Server (TFS)
+    license: MIT
+    # The binaries aren't signed, so remove the quarantine attribute that
+    # would make Gatekeeper block the first run. This is a custom_block rather
+    # than hooks.post.install because hooks render a `postflight` block, which
+    # Homebrew deprecated in favour of the declarative `postflight_steps`.
+    # Relative paths in the steps resolve against the cask's staged_path.
+    custom_block: |
+      postflight_steps do
+        on_macos do
+          run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "tfs"], chdir: "."
+        end
+      end

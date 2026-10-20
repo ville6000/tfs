@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"github.com/ville6000/tfs/internal/ado"
 	"github.com/ville6000/tfs/internal/domain"
@@ -24,6 +25,7 @@ type filterFlags struct {
 	types, noTypes, states, noStates []string
 	all, open, resolved              bool
 	top                              int
+	team                             string
 }
 
 func (f *filterFlags) register(cmd *cobra.Command) {
@@ -36,6 +38,38 @@ func (f *filterFlags) register(cmd *cobra.Command) {
 	fl.BoolVar(&f.open, "open", false, "only open items (not Resolved/Closed/Done/Completed/Removed)")
 	fl.BoolVar(&f.resolved, "resolved", false, "only finished items (Resolved/Closed/Done/Completed)")
 	fl.IntVarP(&f.top, "top", "n", domain.MaxWorkItemTop, fmt.Sprintf("maximum items to fetch (1-%d)", domain.MaxWorkItemTop))
+	fl.StringVar(&f.team, "team", "", "only items on this team's board (alias --board; default: the team config; --team= for the whole project)")
+	fl.SetNormalizeFunc(func(_ *pflag.FlagSet, name string) pflag.NormalizedName {
+		if name == "board" {
+			name = "team"
+		}
+		return pflag.NormalizedName(name)
+	})
+}
+
+// scopeTeam returns the team whose board the query is limited to: --team when given (empty means
+// the whole project), otherwise the configured team.
+func (f *filterFlags) scopeTeam(cmd *cobra.Command, a *App) (string, error) {
+	if cmd.Flags().Changed("team") {
+		return strings.TrimSpace(f.team), nil
+	}
+	cfg, err := a.config()
+	if err != nil {
+		return "", err
+	}
+	return cfg.String("team"), nil
+}
+
+// teamScope fetches the board scope of team, or nil when team is empty.
+func teamScope(ctx context.Context, client *ado.Client, project, team string) (*domain.TeamScope, error) {
+	if team == "" {
+		return nil, nil
+	}
+	s, err := client.TeamScope(ctx, project, team)
+	if err != nil {
+		return nil, err
+	}
+	return &s, nil
 }
 
 func (f *filterFlags) stateFilters(hideByDefault bool) (inc, exc []string, err error) {
@@ -68,7 +102,8 @@ func (a *App) wiListCmd() *cobra.Command {
 		Short:   "List work items (interactive in a terminal)",
 		Example: `  tfs wi list
   tfs wi list -t bug -s active -a @me
-  tfs wi list --tag backend --resolved --json`,
+  tfs wi list --tag backend --resolved --json
+  tfs wi list --board "Team A"`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
@@ -91,7 +126,20 @@ func (a *App) wiListCmd() *cobra.Command {
 			if err := q.Validate(); err != nil {
 				return err
 			}
-			load := func(ctx context.Context) ([]domain.WorkItem, error) { return client.ListWorkItems(ctx, q) }
+			team, err := f.scopeTeam(cmd, a)
+			if err != nil {
+				return err
+			}
+			load := func(ctx context.Context) ([]domain.WorkItem, error) {
+				if q.Scope == nil {
+					scope, err := teamScope(ctx, client, project, team)
+					if err != nil {
+						return nil, err
+					}
+					q.Scope = scope
+				}
+				return client.ListWorkItems(ctx, q)
+			}
 			if a.interactive() {
 				return tui.Run(tui.NewWorkItemList(project, a.actions(), load))
 			}
@@ -119,13 +167,15 @@ func (a *App) wiTreeCmd() *cobra.Command {
 		Short: "Show the work item hierarchy (Epic → Feature → Story → Task)",
 		Long: `Show the work item hierarchy.
 
-Without an id, the whole project is shown; with an id, that item and its ancestors.
+Without an id, the whole project is shown, or with --team (alias --board) the items on that
+team's board; with an id, that item and its ancestors.
 Ancestors of matching items stay visible (dimmed) so the hierarchy stays connected.
 Test Case, Test Plan and Test Suite are hidden unless requested with --type.`,
 		Example: `  tfs wi tree
   tfs wi tree 1234
   tfs wi tree -t epic -t feature -t user-story
-  tfs wi tree -T task -S removed`,
+  tfs wi tree -T task -S removed
+  tfs wi tree --board "Team A"`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -153,6 +203,7 @@ Test Case, Test Plan and Test Suite are hidden unless requested with --type.`,
 			filter := domain.NewFilter(types, noTypes, inc, exc)
 
 			var load func(context.Context) (domain.Tree, error)
+			actions := a.actions()
 			title := ""
 			if id > 0 {
 				title = fmt.Sprintf("tree #%d", id)
@@ -173,12 +224,27 @@ Test Case, Test Plan and Test Suite are hidden unless requested with --type.`,
 				if err := q.Validate(); err != nil {
 					return err
 				}
-				cfg, _ := a.config()
+				team, err := f.scopeTeam(cmd, a)
+				if err != nil {
+					return err
+				}
+				if team != "" {
+					title = project + " · " + team + " tree"
+					// Reorder on the backlog of the team whose board is shown.
+					actions.Team = func(context.Context, string) (string, error) { return team, nil }
+				}
 				load = func(ctx context.Context) (domain.Tree, error) {
+					if q.Scope == nil {
+						scope, err := teamScope(ctx, client, project, team)
+						if err != nil {
+							return domain.Tree{}, err
+						}
+						q.Scope = scope
+					}
 					// Siblings follow the backlog order when the server reports which field holds
 					// it; otherwise they fall back to id order and cannot be reordered.
 					if q.OrderField == "" {
-						q.OrderField, _ = client.BacklogOrderField(ctx, project, cfg.String("team"))
+						q.OrderField, _ = client.BacklogOrderField(ctx, project, team)
 					}
 					items, err := client.ListHierarchy(ctx, q)
 					if err != nil {
@@ -190,7 +256,7 @@ Test Case, Test Plan and Test Suite are hidden unless requested with --type.`,
 				}
 			}
 			if a.interactive() {
-				return tui.Run(tui.NewTreeView(title, a.actions(), load))
+				return tui.Run(tui.NewTreeView(title, actions, load))
 			}
 			tree, err := load(ctx)
 			if err != nil {

@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -20,10 +21,20 @@ func runCLI(t *testing.T, args ...string) (string, error) {
 }
 
 func TestWorkItemListAndConfig(t *testing.T) {
+	var wiql string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if strings.HasSuffix(r.URL.Path, "/wiql") {
+			b, _ := io.ReadAll(r.Body)
+			wiql = string(b)
 			_ = json.NewEncoder(w).Encode(map[string]any{"workItems": []map[string]int{{"id": 7}}})
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/teamfieldvalues") {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"field":  map[string]string{"referenceName": "System.AreaPath"},
+				"values": []map[string]any{{"value": "P\\" + strings.Split(r.URL.Path, "/")[3], "includeChildren": true}},
+			})
 			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"value": []any{map[string]any{"id": 7, "fields": map[string]any{
@@ -55,6 +66,24 @@ func TestWorkItemListAndConfig(t *testing.T) {
 	out, err = runCLI(t, "wi", "list", "-p", "P", "--json")
 	if err != nil || !strings.Contains(out, `"title": "Hello"`) {
 		t.Errorf("json: %v\n%s", err, out)
+	}
+	if strings.Contains(wiql, "AreaPath") {
+		t.Errorf("no team should query the whole project: %s", wiql)
+	}
+	if _, err := runCLI(t, "wi", "list", "-p", "P", "--board", "Team A", "--json"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(wiql, `[System.AreaPath] UNDER 'P\\Team A'`) {
+		t.Errorf("--board should scope to the team's area: %s", wiql)
+	}
+	if _, err := runCLI(t, "config", "set", "team", "Team B"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runCLI(t, "wi", "list", "-p", "P", "--json"); err != nil || !strings.Contains(wiql, "Team B") {
+		t.Errorf("configured team should scope: %v %s", err, wiql)
+	}
+	if _, err := runCLI(t, "wi", "list", "-p", "P", "--team=", "--json"); err != nil || strings.Contains(wiql, "AreaPath") {
+		t.Errorf("--team= should query the whole project: %v %s", err, wiql)
 	}
 	if _, err := runCLI(t, "wi", "list", "-p", "P", "--all", "--open"); err == nil {
 		t.Error("expected conflicting flags error")

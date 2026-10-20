@@ -157,6 +157,17 @@ func BuildWIQL(q domain.WorkItemQuery) string {
 	for _, t := range q.Tags {
 		clauses = append(clauses, fmt.Sprintf("[System.Tags] CONTAINS '%s'", esc(t)))
 	}
+	if s := q.Scope; s != nil && len(s.Values) > 0 {
+		alts := make([]string, len(s.Values))
+		for i, v := range s.Values {
+			op := "="
+			if v.IncludeChildren {
+				op = "UNDER"
+			}
+			alts[i] = fmt.Sprintf("[%s] %s '%s'", s.Field, op, esc(v.Value))
+		}
+		clauses = append(clauses, "("+strings.Join(alts, " OR ")+")")
+	}
 	return "SELECT [System.Id] FROM WorkItems WHERE " + strings.Join(clauses, " AND ") +
 		" ORDER BY [System.ChangedDate] DESC"
 }
@@ -536,6 +547,37 @@ func (c *Client) BacklogOrderField(ctx context.Context, project, team string) (s
 		return "", errors.New("server did not report a backlog order field")
 	}
 	return f, nil
+}
+
+// TeamScope returns the area paths (or other team field values) whose items a team's board shows.
+func (c *Client) TeamScope(ctx context.Context, project, team string) (domain.TeamScope, error) {
+	var payload struct {
+		Field struct {
+			ReferenceName string `json:"referenceName"`
+		} `json:"field"`
+		Values []struct {
+			Value           string `json:"value"`
+			IncludeChildren bool   `json:"includeChildren"`
+		} `json:"values"`
+	}
+	u := c.url(fmt.Sprintf("/%s/%s/_apis/work/teamsettings/teamfieldvalues", seg(project), seg(team)), nil)
+	if err := c.get(ctx, u, &payload); err != nil {
+		if IsKind(err, ErrNotFound) {
+			return domain.TeamScope{}, fmt.Errorf("team %q not found in project %q", team, project)
+		}
+		return domain.TeamScope{}, err
+	}
+	s := domain.TeamScope{Field: payload.Field.ReferenceName}
+	if s.Field == "" {
+		s.Field = "System.AreaPath"
+	}
+	for _, v := range payload.Values {
+		s.Values = append(s.Values, domain.TeamFieldValue{Value: v.Value, IncludeChildren: v.IncludeChildren})
+	}
+	if len(s.Values) == 0 {
+		return domain.TeamScope{}, fmt.Errorf("team %q has no area paths", team)
+	}
+	return s, nil
 }
 
 // DefaultTeam returns the name of the project's default team.

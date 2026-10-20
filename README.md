@@ -96,6 +96,7 @@ tfs wi list --tag backend --resolved         # --all / --open / --resolved short
 tfs wi tree                                  # whole project hierarchy
 tfs wi tree 1234                             # an item and its ancestors
 tfs wi tree -T task -S removed               # deny-lists: --no-type / --no-state
+tfs wi tree --board "Team A"                 # only items on a team's board (--team works too)
 tfs wi show 1234                             # details; omit the id to pick from a list
 tfs wi open 1234
 tfs wi create -t bug --title "Login fails" --parent 1200 -a @me
@@ -114,9 +115,15 @@ item appears in place.
 
 The project tree lists siblings in backlog order, like the web backlog. Press `K`/`J` (or
 `shift+↑`/`shift+↓`) to move an item up or down among its siblings; the new order is saved to
-the server, so it shows on the web backlog too. Reordering uses the backlog of the project's
-default team (set `team` to use another) and needs Azure DevOps Server 2020 or later. Items
-hidden by filters (closed items, by default) are skipped when moving.
+the server, so it shows on the web backlog too. Reordering uses the backlog of the team given
+with `--team`, the configured `team`, or else the project's default team, and needs Azure
+DevOps Server 2020 or later. Items hidden by filters (closed items, by default) are skipped
+when moving.
+
+`wi list` and `wi tree` take `--team <name>` (alias `--board`) to show only the items on that
+team's board, i.e. under the team's area paths. Parents from other areas stay in the tree,
+dimmed. Set `team` in the config to make that the default, and pass `--team=` to see the
+whole project again.
 
 By default lists and the project tree hide `Closed` and `Removed` items; the tree also hides
 Test Cases, Plans and Suites unless you ask for them with `--type`.
@@ -259,7 +266,7 @@ pass `--global` to write to the global file. Config files are written with mode 
 |--------------------|-----------------------|---------------------------------------------------------------|
 | `collectionUrl`    | —                     | e.g. `https://ado.example.com/DefaultCollection` (required)   |
 | `defaultProject`   | —                     | project used when `--project` is omitted                      |
-| `team`             | project default team  | team whose backlog order `wi tree` shows and changes           |
+| `team`             | whole project         | team whose board `wi list`/`wi tree` show (`--team` overrides) |
 | `apiVersion`       | `6.0`                 | REST API version (`5.0` for Azure DevOps Server 2019)          |
 | `userIdentity`     | —                     | what `@me` resolves to when assigning (global only); otherwise asked from the server |
 | `defaultType`      | `Task`                | type for `wi create` when `--type` is omitted                 |

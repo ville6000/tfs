@@ -32,7 +32,7 @@ var Keys = []Key{
 		set: func(f *File, v string) { f.DefaultProject = v },
 	},
 	{
-		Name: "team", Description: "Team whose backlog order `wi tree` shows and changes (default: the project's default team)",
+		Name: "team", Description: "Team whose board `wi list`/`wi tree` show and whose backlog order the tree changes (default: the whole project, ordered by the default team)",
 		get: func(f *File) string { return f.Team },
 		set: func(f *File, v string) { f.Team = v },
 	},

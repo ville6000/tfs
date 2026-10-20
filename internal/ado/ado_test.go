@@ -45,6 +45,38 @@ func TestBuildWIQL(t *testing.T) {
 	}
 }
 
+func TestBuildWIQLTeamScope(t *testing.T) {
+	q := domain.WorkItemQuery{Project: "P", Scope: &domain.TeamScope{Field: "System.AreaPath", Values: []domain.TeamFieldValue{
+		{Value: `P\Team A`, IncludeChildren: true}, {Value: `P\Shared`},
+	}}}
+	want := "SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = 'P' AND " +
+		`([System.AreaPath] UNDER 'P\Team A' OR [System.AreaPath] = 'P\Shared') ` +
+		"ORDER BY [System.ChangedDate] DESC"
+	if got := BuildWIQL(q); got != want {
+		t.Errorf("\n got %s\nwant %s", got, want)
+	}
+}
+
+func TestTeamScope(t *testing.T) {
+	c, reqs := server(t, func(*http.Request, string) (int, any) {
+		return 200, map[string]any{
+			"field":  map[string]string{"referenceName": "System.AreaPath"},
+			"values": []map[string]any{{"value": `P\Team A`, "includeChildren": true}},
+		}
+	})
+	s, err := c.TeamScope(context.Background(), "P", "Team A")
+	if err != nil || s.Field != "System.AreaPath" || len(s.Values) != 1 || !s.Values[0].IncludeChildren {
+		t.Fatalf("scope %+v %v", s, err)
+	}
+	if p := (*reqs)[0].Path; p != "/Col/P/Team A/_apis/work/teamsettings/teamfieldvalues" {
+		t.Errorf("path %s", p)
+	}
+	c, _ = server(t, func(*http.Request, string) (int, any) { return 404, nil })
+	if _, err := c.TeamScope(context.Background(), "P", "Nope"); err == nil || !strings.Contains(err.Error(), `team "Nope" not found`) {
+		t.Errorf("missing team: %v", err)
+	}
+}
+
 func TestListWorkItems(t *testing.T) {
 	c, reqs := server(t, func(r *http.Request, body string) (int, any) {
 		if strings.HasSuffix(r.URL.Path, "/wiql") {

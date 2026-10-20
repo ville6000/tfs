@@ -100,6 +100,21 @@ type WorkItemQuery struct {
 	// OrderField is the backlog order field to fetch (e.g. Microsoft.VSTS.Common.StackRank);
 	// empty to skip it.
 	OrderField string
+	// Scope limits the query to a team's items; nil for the whole project.
+	Scope *TeamScope
+}
+
+// TeamScope is the set of items a team's board shows: those whose team field (usually
+// System.AreaPath) matches one of the team's values.
+type TeamScope struct {
+	Field  string
+	Values []TeamFieldValue
+}
+
+// TeamFieldValue is one of a team's area paths; IncludeChildren also matches the paths under it.
+type TeamFieldValue struct {
+	Value           string
+	IncludeChildren bool
 }
 
 // Query limits.

@@ -34,12 +34,14 @@ each stage. Limit it to the pipelines you care about with --pipeline, or permane
 pipeline's release history instead.
 
 Approving and rejecting ask for confirmation and need a token with the Release
-"Read, write, execute & manage" scope. Releases are never started or promoted manually; they
-move on through their pipeline's own triggers and approvals.`,
+"Read, write, execute & manage" scope. 'approve --reject-older' also rejects the older releases
+waiting for an approval on the same stage. Releases are never started manually; they move on
+through their pipeline's own triggers and approvals.`,
 		Example: `  tfs release
   tfs release --pipeline frontend
   tfs release approvals
   tfs release approve 142 --stage Prod --comment "Smoke tests green"
+  tfs release approve 142 --stage Prod --reject-older
   tfs release reject 142 --stage Prod -m "Blocked by incident"`,
 		Args: cobra.NoArgs,
 		RunE: list,
@@ -245,6 +247,7 @@ func (a *App) releaseApprovalsCmd() *cobra.Command {
 type stageFlags struct {
 	stage, comment string
 	yes            bool
+	rejectOlder    bool
 }
 
 func (f *stageFlags) register(cmd *cobra.Command) {
@@ -313,7 +316,11 @@ func (a *App) releaseDecideCmd(approve bool) *cobra.Command {
 				return err
 			}
 			detail := fmt.Sprintf("%s · %s → %s", rel.Pipeline, rel.Name, stage.Name)
-			if err := a.confirm(f.yes, fmt.Sprintf("%s %s for %s?", verb, rel.Name, stage.Name), detail, verb); err != nil {
+			question := fmt.Sprintf("%s %s for %s?", verb, rel.Name, stage.Name)
+			if f.rejectOlder {
+				return a.promote(ctx, r, rel, stage, ap, f, detail)
+			}
+			if err := a.confirm(f.yes, question, detail, verb); err != nil {
 				return err
 			}
 			if err := r.Client.SetApproval(ctx, r.Project, ap.ID, approve, f.comment); err != nil {
@@ -324,7 +331,42 @@ func (a *App) releaseDecideCmd(approve bool) *cobra.Command {
 		},
 	}
 	f.register(cmd)
+	if approve {
+		cmd.Flags().BoolVar(&f.rejectOlder, "reject-older", false, "also reject the older releases waiting for an approval on the stage")
+	}
 	return cmd
+}
+
+// promote approves ap and rejects the approvals of the older releases waiting for the stage.
+func (a *App) promote(ctx context.Context, r *tui.Releases, rel domain.Release, stage domain.ReleaseStage, ap domain.ReleaseApproval, f stageFlags, detail string) error {
+	older, err := r.Client.PendingBefore(ctx, r.Project, rel, stage)
+	if err != nil {
+		return err
+	}
+	names := make([]string, len(older))
+	for i, o := range older {
+		names[i] = o.Release
+	}
+	question := fmt.Sprintf("Approve %s for %s?", rel.Name, stage.Name)
+	if len(older) > 0 {
+		question = fmt.Sprintf("Approve %s and reject %d older for %s?", rel.Name, len(older), stage.Name)
+		detail += "\nAlso rejects: " + strings.Join(names, ", ")
+	}
+	if err := a.confirm(f.yes, question, detail, "Approve"); err != nil {
+		return err
+	}
+	// Approve first, so a failed rejection never leaves the chosen release unapproved.
+	if err := r.Client.SetApproval(ctx, r.Project, ap.ID, true, f.comment); err != nil {
+		return err
+	}
+	a.printf("Approved %s for %s (%s)\n", rel.Name, stage.Name, rel.Pipeline)
+	if err := r.Client.RejectSuperseded(ctx, r.Project, rel.Name, older, f.comment); err != nil {
+		return err
+	}
+	if len(older) > 0 {
+		a.printf("Rejected %s as superseded\n", strings.Join(names, ", "))
+	}
+	return nil
 }
 
 func (a *App) releaseOpenCmd() *cobra.Command {

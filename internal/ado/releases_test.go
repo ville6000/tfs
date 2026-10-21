@@ -3,6 +3,7 @@ package ado
 import (
 	"context"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -215,5 +216,48 @@ func TestReleaseChangesFirstDeployment(t *testing.T) {
 	// Without a pipeline stage id there is no server-side filter to try.
 	if n := len(*reqs); n != 3 || !strings.Contains((*reqs)[1].Path, "/P/_apis/build/builds/130/workitems") {
 		t.Errorf("requests %+v", *reqs)
+	}
+}
+
+func TestRejectSuperseded(t *testing.T) {
+	release := func(id int, approvalID int) map[string]any {
+		return map[string]any{
+			"id": id, "name": "Release-" + strconv.Itoa(id), "releaseDefinition": map[string]any{"id": 2, "name": "frontend"},
+			"environments": []any{map[string]any{"id": id * 10, "definitionEnvironmentId": 21, "name": "Prod", "status": "notStarted",
+				"preDeployApprovals": []any{map[string]any{"id": approvalID, "status": "pending"}}}},
+		}
+	}
+	c, reqs := server(t, func(r *http.Request, _ string) (int, any) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/_apis/release/releases"):
+			return 200, map[string]any{"value": []any{release(12, 912), release(11, 911), release(9, 909)}}
+		case strings.HasSuffix(r.URL.Path, "/_apis/connectionData"):
+			return 200, map[string]any{"authenticatedUser": map[string]string{"id": "u1", "providerDisplayName": "Me"}}
+		case strings.HasSuffix(r.URL.Path, "/_apis/release/approvals"):
+			return 200, map[string]any{"value": []any{}}
+		case strings.HasSuffix(r.URL.Path, "/approvals/911"):
+			return 403, map[string]any{"message": "nope"}
+		}
+		return 200, map[string]any{}
+	})
+	ctx := context.Background()
+	rel := domain.Release{ID: 12, Name: "Release-12", PipelineID: 2}
+	stage := domain.ReleaseStage{PipelineStageID: 21, Name: "Prod"}
+	older, err := c.PendingBefore(ctx, "P", rel, stage)
+	if err != nil || len(older) != 2 || older[0].ID != 909 || older[1].ID != 911 || older[1].Release != "Release-11" {
+		t.Fatalf("older %+v %v", older, err)
+	}
+	if q := (*reqs)[0].Query; !strings.Contains(q, "definitionId=2") {
+		t.Errorf("releases query %s", q)
+	}
+	n := len(*reqs)
+	err = c.RejectSuperseded(ctx, "P", "Release-12", older, "go")
+	if err == nil || !strings.Contains(err.Error(), "Release-11") || strings.Contains(err.Error(), "Release-9") {
+		t.Errorf("a failed rejection is reported: %v", err)
+	}
+	patches := (*reqs)[n:]
+	if len(patches) != 2 || !strings.HasSuffix(patches[0].Path, "/approvals/909") ||
+		!strings.Contains(patches[0].Body, `"Superseded by Release-12: go"`) || !strings.Contains(patches[0].Body, `"rejected"`) {
+		t.Errorf("updates %+v", patches)
 	}
 }

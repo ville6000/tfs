@@ -2,6 +2,7 @@ package domain
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -197,6 +198,34 @@ func DeployedBefore(rel Release, stage ReleaseStage, releases []Release) *Releas
 		}
 	}
 	return best
+}
+
+// PendingBefore returns, oldest first, the copies of the stage in releases created before rel that
+// are waiting for an approval: the releases queued for the stage ahead of rel.
+func PendingBefore(rel Release, stage ReleaseStage, releases []Release) []ReleaseStage {
+	older := slices.Clone(releases)
+	slices.SortFunc(older, func(a, b Release) int { return a.ID - b.ID })
+	var out []ReleaseStage
+	for i, r := range older {
+		if r.ID >= rel.ID || r.PipelineID != rel.PipelineID || (i > 0 && older[i-1].ID == r.ID) {
+			continue
+		}
+		for _, s := range r.Stages {
+			if s.sameAs(stage.PipelineStageID, stage.Name) && s.State() == StageAwaitingApproval {
+				out = append(out, s)
+				break
+			}
+		}
+	}
+	return out
+}
+
+// SupersededComment is the comment recorded when rejecting a release superseded by another.
+func SupersededComment(by, comment string) string {
+	if comment = strings.TrimSpace(comment); comment != "" {
+		return fmt.Sprintf("Superseded by %s: %s", by, comment)
+	}
+	return "Superseded by " + by
 }
 
 // ReleaseChanges is what deploying a release to a stage brings there: the work items of its

@@ -18,6 +18,7 @@ import (
 var (
 	keyApprove   = key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "approve"))
 	keyReject    = key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "reject"))
+	keyPromote   = key.NewBinding(key.WithKeys("A"), key.WithHelp("A", "approve, reject older"))
 	keyApprovals = key.NewBinding(key.WithKeys("P"), key.WithHelp("P", "my approvals"))
 )
 
@@ -96,6 +97,83 @@ func (r *Releases) decideStage(rel domain.Release, stage domain.ReleaseStage, ap
 		a.Pipeline, a.Release, a.Stage, a.ReleaseID = rel.Pipeline, rel.Name, stage.Name, rel.ID
 		return CmdMsg{r.decide(a, approve)}
 	})
+}
+
+// promoteStage approves the stage's pending approval and rejects those of the older releases
+// waiting for the same stage.
+func (r *Releases) promoteStage(rel domain.Release, stage domain.ReleaseStage) tea.Cmd {
+	if len(stage.PendingApprovals) == 0 {
+		return Status(fmt.Sprintf("%s is not waiting for an approval", stage.Name))
+	}
+	return Busy("finding older releases", func() tea.Msg {
+		ctx := context.Background()
+		a, err := r.Client.PickApproval(ctx, r.Project, rel, stage)
+		if err != nil {
+			return StatusMsg{Text: err.Error(), Err: true}
+		}
+		a.Pipeline, a.Release, a.Stage, a.ReleaseID = rel.Pipeline, rel.Name, stage.Name, rel.ID
+		older, err := r.Client.PendingBefore(ctx, r.Project, rel, stage)
+		if err != nil {
+			return StatusMsg{Text: err.Error(), Err: true}
+		}
+		return CmdMsg{r.promote(a, older)}
+	})
+}
+
+// promoteApproval is promoteStage for an approval from the approvals list.
+func (r *Releases) promoteApproval(a domain.ReleaseApproval) tea.Cmd {
+	return Busy("finding older releases", func() tea.Msg {
+		ctx := context.Background()
+		rel, err := r.Client.GetRelease(ctx, r.Project, a.ReleaseID)
+		if err != nil {
+			return StatusMsg{Text: err.Error(), Err: true}
+		}
+		for _, stage := range rel.Stages {
+			if stage.ID == a.StageID {
+				older, err := r.Client.PendingBefore(ctx, r.Project, rel, stage)
+				if err != nil {
+					return StatusMsg{Text: err.Error(), Err: true}
+				}
+				return CmdMsg{r.promote(a, older)}
+			}
+		}
+		return StatusMsg{Text: fmt.Sprintf("%s has no stage %s", rel.Name, a.Stage), Err: true}
+	})
+}
+
+// promote asks to approve a and reject the older approvals, then applies it.
+func (r *Releases) promote(a domain.ReleaseApproval, older []domain.ReleaseApproval) tea.Cmd {
+	detail := fmt.Sprintf("%s · %s → %s (%s)", a.Pipeline, a.Release, a.Stage, approvalWhen(a))
+	question := fmt.Sprintf("Approve %s for %s?", a.Release, a.Stage)
+	if len(older) == 0 {
+		detail += "\n" + ui.Muted.Render("No older release is waiting for "+a.Stage+".")
+	} else {
+		names := make([]string, len(older))
+		for i, o := range older {
+			names[i] = o.Release
+		}
+		detail += "\n" + ui.Warn.Render(fmt.Sprintf("Also rejects the older releases waiting for %s: %s", a.Stage, strings.Join(names, ", ")))
+		question = fmt.Sprintf("Approve %s and reject %d older for %s?", a.Release, len(older), a.Stage)
+	}
+	return Push(NewConfirm("Approve "+a.Stage, question, detail, "Approve", func(comment string) tea.Cmd {
+		return Busy("approving", func() tea.Msg {
+			// Approve first, so a failed rejection never leaves the chosen release unapproved.
+			ctx := context.Background()
+			if err := r.Client.SetApproval(ctx, r.Project, a.ID, true, comment); err != nil {
+				return StatusMsg{Text: err.Error(), Err: true}
+			}
+			done := fmt.Sprintf("approved %s for %s", a.Release, a.Stage)
+			err := r.Client.RejectSuperseded(ctx, r.Project, a.Release, older, comment)
+			switch {
+			case err != nil:
+				done += "; " + err.Error()
+			case len(older) > 0:
+				done += fmt.Sprintf(", rejected %d older", len(older))
+			}
+			return CmdMsg{tea.Batch(func() tea.Msg { return releaseChangedMsg{a.ReleaseID} },
+				func() tea.Msg { return StatusMsg{Text: done, Err: err != nil} })}
+		})
+	}))
 }
 
 // ---- dashboard ---------------------------------------------------------------------------
@@ -496,9 +574,9 @@ func (v *ReleaseView) Title() string {
 }
 func (v *ReleaseView) Help() []key.Binding {
 	if v.onItems {
-		return append([]key.Binding{keyApprove, keyReject, keyEnter, keyOpen, keyToStages, keyRefresh}, v.items.Help()[:3]...)
+		return append([]key.Binding{keyApprove, keyReject, keyPromote, keyEnter, keyOpen, keyToStages, keyRefresh}, v.items.Help()[:3]...)
 	}
-	return append([]key.Binding{keyApprove, keyReject, keyToItems, keyOpen, keyRefresh}, v.table.Help()[:3]...)
+	return append([]key.Binding{keyApprove, keyReject, keyPromote, keyToItems, keyOpen, keyRefresh}, v.table.Help()[:3]...)
 }
 
 func (v *ReleaseView) Update(msg tea.Msg) (Screen, tea.Cmd) {
@@ -571,6 +649,11 @@ func (v *ReleaseView) Update(msg tea.Msg) (Screen, tea.Cmd) {
 				return v, nil
 			}
 			return v, v.r.decideStage(*v.release, stage, key.Matches(msg, keyApprove))
+		case key.Matches(msg, keyPromote):
+			if stage, ok := v.selectedStage(); ok {
+				return v, v.r.promoteStage(*v.release, stage)
+			}
+			return v, nil
 		case key.Matches(msg, keyOpen):
 			if !v.onItems {
 				return v, v.r.open(v.release.URL)
@@ -640,7 +723,7 @@ func (l *ApprovalsList) Capturing() bool  { return l.table.Filtering() }
 func (l *ApprovalsList) SetSize(w, h int) { l.table.SetSize(w, h) }
 func (l *ApprovalsList) View() string     { return l.table.View() }
 func (l *ApprovalsList) Help() []key.Binding {
-	return append([]key.Binding{keyApprove, keyReject, keyEnter, keyOpen, keyRefresh}, l.table.Help()...)
+	return append([]key.Binding{keyApprove, keyReject, keyPromote, keyEnter, keyOpen, keyRefresh}, l.table.Help()...)
 }
 
 func (l *ApprovalsList) Update(msg tea.Msg) (Screen, tea.Cmd) {
@@ -688,6 +771,8 @@ func (l *ApprovalsList) Update(msg tea.Msg) (Screen, tea.Cmd) {
 			return l, l.r.decide(a, true)
 		case key.Matches(msg, keyReject):
 			return l, l.r.decide(a, false)
+		case key.Matches(msg, keyPromote):
+			return l, l.r.promoteApproval(a)
 		case key.Matches(msg, keyEnter):
 			return l, Push(NewReleaseView(l.r, a.ReleaseID))
 		case key.Matches(msg, keyOpen):

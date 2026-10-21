@@ -175,6 +175,7 @@ tfs release show 142 --stage Test            # … the work items it brings to T
 tfs release approvals                        # approvals waiting for you (including your groups')
 tfs release approve 142 --stage Prod -m "Smoke tests green"
 tfs release reject 142 --stage Prod -m "Blocked by incident"
+tfs release approve 142 --stage Prod --reject-older   # approve 142, reject older ones queued for Prod
 ```
 
 The dashboard lists, for each stage, the newest release that reached it, so you can see what is
@@ -196,7 +197,15 @@ tfs config set releasePipelines "frontend, backend"
 ```
 
 Approving and rejecting always ask for confirmation (the default answer is no) and record an
-optional comment; in scripts pass `--yes`. You can only approve stages you are an approver of.
+optional comment; in scripts pass `--yes`. In the confirmation, `ctrl+s` confirms straight from
+the comment field and `esc` cancels. You can only approve stages you are an approver of.
+
+When several releases queue up waiting for approval on the same stage, `--reject-older` (or `A`
+in a release or in my approvals) approves the one you pick and rejects the older releases
+waiting for that stage, with the comment "Superseded by Release-N". The confirmation lists the
+releases it will reject. It approves first, so a failed rejection never leaves the chosen release
+unapproved.
+
 `tfs` never starts or promotes a deployment by itself — releases move on through their
 pipeline's own triggers and approvals.
 
@@ -231,6 +240,8 @@ Lists, the tree, and detail views are interactive when stdin and stdout are a te
 | `w`            | create worktree                         |
 | `p`            | go to parent (work item details)        |
 | `a` / `x`      | approve / reject a pending release approval (release, my approvals) |
+| `A`            | approve and reject the older releases waiting for the stage (release, my approvals) |
+| `ctrl+s` / `esc` | confirm / cancel (approve and reject confirmations) |
 | `P`            | my pending approvals (release dashboard) |
 | `f`            | next failed task (build)                |
 | `tab`          | switch between stages and work items (release) |

@@ -135,3 +135,38 @@ func TestArtifactBuildID(t *testing.T) {
 		t.Errorf("git: %d", id)
 	}
 }
+
+func TestPendingBefore(t *testing.T) {
+	stages := func(id int, prod string, pending bool) []ReleaseStage {
+		s := ReleaseStage{ID: id, PipelineStageID: 3, Name: "Prod", Status: prod}
+		if pending {
+			s.PendingApprovals = []ReleaseApproval{{ID: 1, Status: "pending"}}
+		}
+		return []ReleaseStage{{PipelineStageID: 1, Name: "Dev", Status: "succeeded"}, s}
+	}
+	rel := Release{ID: 12, PipelineID: 7, Stages: stages(12, "notStarted", true)}
+	releases := []Release{
+		{ID: 13, PipelineID: 7, Stages: stages(13, "notStarted", true)}, // newer
+		rel,
+		{ID: 11, PipelineID: 7, Stages: stages(11, "notStarted", true)},
+		{ID: 10, PipelineID: 7, Stages: stages(10, "succeeded", false)},
+		{ID: 9, PipelineID: 7, Stages: stages(9, "notStarted", true)},
+		{ID: 8, PipelineID: 6, Stages: stages(8, "notStarted", true)}, // another pipeline
+	}
+	got := PendingBefore(rel, rel.Stages[1], releases)
+	if len(got) != 2 || got[0].ID != 9 || got[1].ID != 11 {
+		t.Fatalf("got %+v", got)
+	}
+	if len(PendingBefore(rel, rel.Stages[0], releases)) != 0 {
+		t.Error("Dev is not waiting anywhere")
+	}
+}
+
+func TestSupersededComment(t *testing.T) {
+	if got := SupersededComment("Release-12", " "); got != "Superseded by Release-12" {
+		t.Error(got)
+	}
+	if got := SupersededComment("Release-12", "hotfix"); got != "Superseded by Release-12: hotfix" {
+		t.Error(got)
+	}
+}

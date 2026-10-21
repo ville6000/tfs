@@ -440,16 +440,59 @@ func (c *Client) PickApproval(ctx context.Context, project string, rel domain.Re
 	if len(stage.PendingApprovals) == 0 {
 		return domain.ReleaseApproval{}, fmt.Errorf("%s has no pending approval on %s", rel.Name, stage.Name)
 	}
-	if mine, err := c.MyPendingApprovals(ctx, project); err == nil {
-		for _, a := range mine {
-			for _, p := range stage.PendingApprovals {
-				if a.ID == p.ID {
-					return p, nil
-				}
+	mine, _ := c.MyPendingApprovals(ctx, project)
+	return pickApproval(stage, mine), nil
+}
+
+func pickApproval(stage domain.ReleaseStage, mine []domain.ReleaseApproval) domain.ReleaseApproval {
+	for _, a := range mine {
+		for _, p := range stage.PendingApprovals {
+			if a.ID == p.ID {
+				return p
 			}
 		}
 	}
-	return stage.PendingApprovals[0], nil
+	return stage.PendingApprovals[0]
+}
+
+// PendingBefore lists the approvals the user would act on for the releases of rel's pipeline that
+// were created before it and wait for an approval on the stage, oldest first.
+func (c *Client) PendingBefore(ctx context.Context, project string, rel domain.Release, stage domain.ReleaseStage) ([]domain.ReleaseApproval, error) {
+	q := url.Values{
+		"definitionId": {strconv.Itoa(rel.PipelineID)},
+		"$top":         {"100"},
+		"$expand":      {"environments"},
+		"queryOrder":   {"descending"},
+	}
+	if !rel.Created.IsZero() {
+		q.Set("maxCreatedTime", rel.Created.UTC().Format(time.RFC3339Nano))
+	}
+	rels, err := c.listReleases(ctx, project, q)
+	if err != nil {
+		return nil, err
+	}
+	stages := domain.PendingBefore(rel, stage, rels)
+	if len(stages) == 0 {
+		return nil, nil
+	}
+	mine, _ := c.MyPendingApprovals(ctx, project)
+	out := make([]domain.ReleaseApproval, len(stages))
+	for i, s := range stages {
+		out[i] = pickApproval(s, mine)
+	}
+	return out, nil
+}
+
+// RejectSuperseded rejects the older releases' approvals as superseded by the release named by.
+// It tries them all; the error names the releases that could not be rejected.
+func (c *Client) RejectSuperseded(ctx context.Context, project, by string, older []domain.ReleaseApproval, comment string) error {
+	var errs []error
+	for _, o := range older {
+		if err := c.SetApproval(ctx, project, o.ID, false, domain.SupersededComment(by, comment)); err != nil {
+			errs = append(errs, fmt.Errorf("could not reject %s: %w", o.Release, err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // SetApproval approves or rejects a release approval.

@@ -1,8 +1,11 @@
 package tui
 
 import (
+	"reflect"
 	"strings"
 	"testing"
+
+	"charm.land/bubbles/v2/key"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -160,5 +163,94 @@ func TestApprovalsListFilterAndConfirm(t *testing.T) {
 	c, ok := push.Screen.(*Confirm)
 	if !ok || !strings.Contains(c.detail, "frontend · Release-11 → Prod (before deployment)") {
 		t.Errorf("confirm screen: %#v", push.Screen)
+	}
+}
+
+func TestConfirmShortcuts(t *testing.T) {
+	ran := ""
+	newConfirm := func() *Confirm {
+		c := NewConfirm("Approve Prod", "Approve Release-11 for Prod?", "detail", "Approve", func(comment string) tea.Cmd {
+			return func() tea.Msg { ran = comment; return nil }
+		})
+		c.SetSize(80, 20)
+		run(c.Init())
+		return c
+	}
+	if !strings.Contains(ansi.Strip(helpText(newConfirm().Help())), "ctrl+s approve") {
+		t.Errorf("help: %s", helpText(newConfirm().Help()))
+	}
+
+	// ctrl+s confirms straight from the comment field, with the comment typed so far.
+	c := newConfirm()
+	for _, k := range []string{"o", "k"} {
+		c.Update(press(k))
+	}
+	_, cmd := c.Update(press("ctrl+s"))
+	if cmd == nil {
+		t.Fatal("ctrl+s should confirm")
+	}
+	runAll(cmd)
+	if ran != "ok" {
+		t.Errorf("ran with %q", ran)
+	}
+
+	ran = "-"
+	_, cmd = newConfirm().Update(press("esc"))
+	runAll(cmd)
+	if ran != "-" {
+		t.Error("esc must not run the action")
+	}
+}
+
+func helpText(keys []key.Binding) string {
+	var parts []string
+	for _, k := range keys {
+		parts = append(parts, k.Help().Key+" "+k.Help().Desc)
+	}
+	return strings.Join(parts, ", ")
+}
+
+// runAll runs a command and the commands of any sequence or batch it returns.
+func runAll(cmd tea.Cmd) {
+	switch msg := run(cmd).(type) {
+	case tea.BatchMsg:
+		for _, c := range msg {
+			runAll(c)
+		}
+	case CmdMsg:
+		runAll(msg.Cmd)
+	default:
+		// tea.Sequence's message is an unexported []tea.Cmd.
+		if v := reflect.ValueOf(msg); v.Kind() == reflect.Slice && v.Type().Elem() == reflect.TypeFor[tea.Cmd]() {
+			for i := range v.Len() {
+				runAll(v.Index(i).Interface().(tea.Cmd))
+			}
+		}
+	}
+}
+
+func TestPromoteKey(t *testing.T) {
+	v := NewReleaseView(&Releases{}, 11)
+	v.SetSize(100, 20)
+	v.Update(releaseLoadedMsg{screen: v.sid, release: sampleRelease()})
+	v.Update(press("k")) // Dev
+	_, cmd := v.Update(press("A"))
+	if msg, ok := run(cmd).(StatusMsg); !ok || !strings.Contains(msg.Text, "not waiting") {
+		t.Errorf("promote on Dev: %#v", run(cmd))
+	}
+
+	r := &Releases{}
+	a := domain.ReleaseApproval{ID: 900, Pipeline: "frontend", Release: "Release-11", Stage: "Prod", Type: "preDeploy"}
+	push, ok := run(r.promote(a, []domain.ReleaseApproval{{ID: 801, Release: "Release-9"}, {ID: 802, Release: "Release-10"}})).(PushMsg)
+	if !ok {
+		t.Fatal("promote should ask for confirmation")
+	}
+	push.Screen.SetSize(100, 20)
+	run(push.Screen.Init())
+	view := ansi.Strip(push.Screen.View())
+	for _, want := range []string{"Also rejects the older releases waiting for Prod: Release-9, Release-10", "reject 2 older"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("missing %q in:\n%s", want, view)
+		}
 	}
 }

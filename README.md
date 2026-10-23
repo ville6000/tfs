@@ -24,8 +24,9 @@ enter details • o open in browser • s set state • a assign to me • w wor
 - **Hierarchy tree** — Epic → Feature → Story → Task in backlog order with assignees, collapsible;
   reorder items and the new order is saved to the server. Ancestors of matches stay visible so the
   tree stays connected.
-- **Pull requests** — list with approval status, view details and reviewers, open, check out the
-  source branch or create a worktree for review, open the create-PR page for the current branch.
+- **Pull requests** — list with approval status, view details, reviewers and comment threads, open,
+  check out the source branch or create a worktree for review, open the create-PR page for the
+  current branch.
 - **Builds** — recent runs of your build pipelines (classic and YAML) with live status, each
   build's stages, jobs and tasks with their errors, and task logs.
 - **Releases** — a dashboard of your classic release pipelines showing what is deployed on each
@@ -137,6 +138,7 @@ hyphens — so `-t user-story` means `User Story` and `-s to-do` means `To Do`.
 tfs pr list                                  # active PRs in the project
 tfs pr list --status all --creator alice --repo web
 tfs pr show 4567
+tfs pr show 4567 --comments                  # include comment threads (--json keeps system/deleted ones)
 tfs pr open 4567
 tfs pr checkout 4567                         # fetch and switch to the source branch
 tfs pr checkout 4567 --worktree              # or a worktree at ../<repo>-pr-4567

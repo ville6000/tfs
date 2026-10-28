@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -33,12 +34,38 @@ type Client struct {
 
 // New creates a client. collection is the collection URL, e.g. https://host/DefaultCollection.
 func New(collection, apiVersion, pat string) *Client {
+	collection = strings.TrimRight(collection, "/")
 	return &Client{
-		collection: strings.TrimRight(collection, "/"),
+		collection: collection,
 		apiVersion: apiVersion,
 		auth:       "Basic " + base64.StdEncoding.EncodeToString([]byte(":"+pat)),
-		http:       &http.Client{Timeout: 60 * time.Second},
+		http:       &http.Client{Timeout: 60 * time.Second, CheckRedirect: sameOrigin(collection)},
 	}
+}
+
+// sameOrigin refuses redirects off the collection's scheme and host, so the token is never
+// forwarded elsewhere (net/http keeps Authorization on a same-host https -> http redirect).
+func sameOrigin(collection string) func(*http.Request, []*http.Request) error {
+	base, err := url.Parse(collection)
+	return func(req *http.Request, via []*http.Request) error {
+		if err != nil || originOf(req.URL) != originOf(base) {
+			return fmt.Errorf("refusing redirect to %s://%s: not the collection's server", req.URL.Scheme, req.URL.Host)
+		}
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 redirects")
+		}
+		return nil
+	}
+}
+
+// originOf returns u's lower-cased scheme://host:port, with the scheme's default port filled in
+// so that https://host and https://host:443 compare equal.
+func originOf(u *url.URL) string {
+	scheme, port := strings.ToLower(u.Scheme), u.Port()
+	if port == "" {
+		port = map[string]string{"https": "443", "http": "80"}[scheme]
+	}
+	return scheme + "://" + net.JoinHostPort(strings.ToLower(u.Hostname()), port)
 }
 
 // Collection returns the collection URL.
@@ -68,7 +95,7 @@ func (e *APIError) Error() string {
 	hint := ""
 	switch e.Kind {
 	case ErrUnauthorized:
-		hint = " (check that TFS_PAT is valid and not expired)"
+		hint = " (check that the personal access token is valid and not expired)"
 	case ErrForbidden:
 		hint = " (the token lacks the required scope or you lack permission)"
 	}
@@ -199,18 +226,27 @@ func (c *Client) CurrentUser(ctx context.Context) (string, error) {
 	if c.UserIdentity != "" {
 		return c.UserIdentity, nil
 	}
+	// Azure DevOps Server returns the account only under properties.Account, and the name as
+	// providerDisplayName / customDisplayName.
 	var payload struct {
 		AuthenticatedUser struct {
-			UniqueName  string `json:"uniqueName"`
-			MailAddress string `json:"mailAddress"`
-			DisplayName string `json:"displayName"`
+			UniqueName          string `json:"uniqueName"`
+			MailAddress         string `json:"mailAddress"`
+			DisplayName         string `json:"displayName"`
+			CustomDisplayName   string `json:"customDisplayName"`
+			ProviderDisplayName string `json:"providerDisplayName"`
+			Properties          struct {
+				Account struct {
+					Value string `json:"$value"`
+				} `json:"Account"`
+			} `json:"properties"`
 		} `json:"authenticatedUser"`
 	}
 	if err := c.get(ctx, c.collection+"/_apis/connectionData", &payload); err != nil {
 		return "", err
 	}
 	u := payload.AuthenticatedUser
-	for _, v := range []string{u.UniqueName, u.MailAddress, u.DisplayName} {
+	for _, v := range []string{u.UniqueName, u.Properties.Account.Value, u.MailAddress, u.DisplayName, u.CustomDisplayName, u.ProviderDisplayName} {
 		if strings.TrimSpace(v) != "" {
 			return v, nil
 		}

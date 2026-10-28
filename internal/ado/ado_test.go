@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -231,6 +232,18 @@ func TestCurrentUser(t *testing.T) {
 	}
 }
 
+func TestCurrentUserServerShape(t *testing.T) {
+	c, _ := server(t, func(*http.Request, string) (int, any) {
+		return 200, map[string]any{"authenticatedUser": map[string]any{
+			"id": "u1", "providerDisplayName": "Me Myself",
+			"properties": map[string]any{"Account": map[string]string{"$type": "System.String", "$value": "DOMAIN\\me"}},
+		}}
+	})
+	if u, err := c.CurrentUser(context.Background()); err != nil || u != "DOMAIN\\me" {
+		t.Errorf("got %q %v", u, err)
+	}
+}
+
 func TestTypeCategories(t *testing.T) {
 	c, reqs := server(t, func(*http.Request, string) (int, any) {
 		return 200, map[string]any{"value": []any{map[string]any{
@@ -288,5 +301,41 @@ func TestBacklogOrdering(t *testing.T) {
 	if r.Method != "PATCH" || r.Path != "/Col/P/P Team/_apis/work/workitemsorder" || !strings.Contains(r.Query, "6.0-preview.1") ||
 		strings.TrimSpace(r.Body) != `{"ids":[3],"parentId":1,"previousId":2,"nextId":0}` {
 		t.Errorf("reorder request: %+v", r)
+	}
+}
+
+func TestRedirectOffOriginKeepsToken(t *testing.T) {
+	var leaked string
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		leaked = r.Header.Get("Authorization")
+	}))
+	t.Cleanup(other.Close)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, other.URL+r.URL.Path, http.StatusFound)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New(srv.URL+"/Col", "6.0", "secret")
+	if _, err := c.CurrentUser(context.Background()); err == nil || !strings.Contains(err.Error(), "refusing redirect") {
+		t.Errorf("expected the redirect to be refused, got %v", err)
+	}
+	if leaked != "" {
+		t.Errorf("token sent to another server: %q", leaked)
+	}
+}
+
+func TestSameOriginDefaultPort(t *testing.T) {
+	check := sameOrigin("https://ADO.example.com/Col")
+	for target, ok := range map[string]bool{
+		"https://ado.example.com:443/Col/x": true,
+		"https://ado.example.com/Col/x":     true,
+		"https://ado.example.com:8443/x":    false,
+		"http://ado.example.com/x":          false,
+		"https://evil.example.com/x":        false,
+	} {
+		u, _ := url.Parse(target)
+		if err := check(&http.Request{URL: u}, nil); (err == nil) != ok {
+			t.Errorf("%s: got %v, want allowed=%v", target, err, ok)
+		}
 	}
 }

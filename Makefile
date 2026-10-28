@@ -7,11 +7,18 @@ LDFLAGS := -s -w -X main.version=$(VERSION)
 help: ## Show this help
 	@grep -E '^[a-z]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
 
+GOBIN   ?= $(or $(shell go env GOBIN),$(shell go env GOPATH)/bin)
+
 build: ## Build ./bin/tfs
 	go build -ldflags "$(LDFLAGS)" -o bin/$(BINARY) ./cmd/tfs
+ifeq ($(shell uname),Darwin)
+	@# Hardened runtime: no code injection or debugger attach to read the Keychain token.
+	codesign --force --sign - --options runtime bin/$(BINARY)
+endif
 
-install: ## Install tfs into $GOBIN
-	go install -ldflags "$(LDFLAGS)" ./cmd/tfs
+install: build ## Install tfs into $GOBIN
+	install -d $(GOBIN)
+	install -m 0755 bin/$(BINARY) $(GOBIN)/$(BINARY)
 
 test: ## Run tests
 	go test -race ./...

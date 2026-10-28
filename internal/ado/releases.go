@@ -504,7 +504,7 @@ func (c *Client) SetApproval(ctx context.Context, project string, approvalID int
 	u := c.url(fmt.Sprintf("/%s/_apis/release/approvals/%d", seg(project), approvalID), nil)
 	err := c.do(ctx, http.MethodPatch, u, "application/json", map[string]string{"status": status, "comments": comment}, nil)
 	if IsKind(err, ErrForbidden) {
-		return fmt.Errorf("not allowed to %s this stage (are you one of its approvers, and does TFS_PAT have the Release manage scope?): %w", map[bool]string{true: "approve", false: "reject"}[approve], err)
+		return fmt.Errorf("not allowed to %s this stage (are you one of its approvers, and does the token have the Release manage scope?): %w", map[bool]string{true: "approve", false: "reject"}[approve], err)
 	}
 	return err
 }

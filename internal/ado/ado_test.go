@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ville6000/tfs/internal/domain"
 )
@@ -213,6 +214,76 @@ func TestPullRequests(t *testing.T) {
 	}
 	if q := (*reqs)[0].Query; !strings.Contains(q, "searchCriteria.status=active") || !strings.Contains(q, "$top=10") {
 		t.Errorf("query: %s", q)
+	}
+}
+
+func TestPullRequestThreads(t *testing.T) {
+	c, reqs := server(t, func(*http.Request, string) (int, any) {
+		return 200, map[string]any{"count": 2, "value": []any{
+			map[string]any{
+				"id": 11, "status": "active", "isDeleted": false,
+				"publishedDate": "2024-05-01T10:00:00Z", "lastUpdatedDate": "2024-05-02T10:00:00Z",
+				"threadContext": map[string]any{"filePath": "/src/main.go",
+					"rightFileStart": map[string]int{"line": 42, "offset": 1}, "rightFileEnd": map[string]int{"line": 42, "offset": 9}},
+				"properties": map[string]any{},
+				"comments": []any{
+					map[string]any{"id": 1, "parentCommentId": 0, "author": map[string]string{"displayName": "Alice", "uniqueName": "DOMAIN\\alice"},
+						"content": "Why?", "publishedDate": "2024-05-01T10:00:00Z", "lastUpdatedDate": "2024-05-01T11:00:00Z",
+						"lastContentUpdatedDate": "2024-05-01T10:30:00Z", "commentType": "text", "isDeleted": false,
+						"usersLiked": []any{map[string]string{"displayName": "Bob"}},
+						"_links":     map[string]any{"self": map[string]string{"href": "https://x/comments/1"}}},
+					map[string]any{"id": 2, "parentCommentId": 1, "content": "Because.", "commentType": "text"},
+				},
+			},
+			map[string]any{"id": 12, "status": "closed", "threadContext": map[string]any{"filePath": "/old.go",
+				"leftFileStart": map[string]int{"line": 7, "offset": 1}},
+				"comments": []any{map[string]any{"id": 1, "content": "removed", "commentType": "system", "isDeleted": true}}},
+		}}
+	})
+	threads, err := c.PullRequestThreads(context.Background(), "P", "R", 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := (*reqs)[0]; r.Path != "/Col/P/_apis/git/repositories/R/pullRequests/7/threads" || r.Query != "api-version=6.0" {
+		t.Errorf("request: %s ? %s", r.Path, r.Query)
+	}
+	if len(threads) != 2 {
+		t.Fatalf("threads: %+v", threads)
+	}
+	th := threads[0]
+	if th.ID != 11 || th.Status != "active" || th.FilePath != "/src/main.go" || th.Line != 42 || th.IsDeleted ||
+		!th.Published.Equal(time.Date(2024, 5, 1, 10, 0, 0, 0, time.UTC)) || !th.Updated.Equal(time.Date(2024, 5, 2, 10, 0, 0, 0, time.UTC)) {
+		t.Errorf("thread: %+v", th)
+	}
+	if len(th.Comments) != 2 {
+		t.Fatalf("comments: %+v", th.Comments)
+	}
+	full := th.Comments[0]
+	if full.ID != 1 || full.Author != "Alice" || full.Text != "Why?" || full.Type != "text" || full.ParentID != 0 ||
+		!full.Created.Equal(time.Date(2024, 5, 1, 10, 0, 0, 0, time.UTC)) ||
+		!full.Updated.Equal(time.Date(2024, 5, 1, 11, 0, 0, 0, time.UTC)) ||
+		!full.ContentUpdated.Equal(time.Date(2024, 5, 1, 10, 30, 0, 0, time.UTC)) ||
+		len(full.LikedBy) != 1 || full.LikedBy[0] != "Bob" || full.URL != "https://x/comments/1" {
+		t.Errorf("full comment: %+v", full)
+	}
+	if reply := th.Comments[1]; reply.ParentID != 1 || reply.Author != "unknown" || !reply.Created.IsZero() || reply.LikedBy != nil || reply.URL != "" {
+		t.Errorf("minimal comment: %+v", reply)
+	}
+	if left := threads[1]; left.Line != 7 || left.Status != "closed" || !left.Comments[0].IsDeleted || left.Comments[0].Type != "system" {
+		t.Errorf("left-side thread: %+v", left)
+	}
+	if _, err := c.PullRequestThreads(context.Background(), "P", "R", 0); err == nil {
+		t.Error("expected error for id 0")
+	}
+}
+
+func TestPullRequestThreadsEmpty(t *testing.T) {
+	c, _ := server(t, func(*http.Request, string) (int, any) {
+		return 200, map[string]any{"count": 0, "value": []any{}}
+	})
+	threads, err := c.PullRequestThreads(context.Background(), "P", "R", 7)
+	if err != nil || threads == nil || len(threads) != 0 {
+		t.Errorf("got %#v, %v; want non-nil empty slice", threads, err)
 	}
 }
 

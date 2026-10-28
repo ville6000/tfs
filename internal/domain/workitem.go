@@ -5,7 +5,6 @@ package domain
 import (
 	"fmt"
 	"strings"
-	"time"
 )
 
 // WorkItem is the summary view of a work item used by listings, trees and pickers.
@@ -25,14 +24,6 @@ type WorkItem struct {
 
 // HasParent reports whether the item has a known parent.
 func (w WorkItem) HasParent() bool { return w.ParentID > 0 }
-
-// Comment is a single discussion entry on a work item.
-type Comment struct {
-	ID      int       `json:"id"`
-	Author  string    `json:"author"`
-	Created time.Time `json:"created"`
-	Text    string    `json:"text"`
-}
 
 // WorkItemDetail is a work item together with its long-form fields and comments.
 type WorkItemDetail struct {

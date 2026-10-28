@@ -93,6 +93,52 @@ func TestWorkItemListAndConfig(t *testing.T) {
 	}
 }
 
+func TestPullRequestShowComments(t *testing.T) {
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/threads") {
+			_ = json.NewEncoder(w).Encode(map[string]any{"value": []any{map[string]any{"id": 3, "status": "active",
+				"comments": []any{map[string]any{"id": 1, "content": "Nice", "commentType": "text", "author": map[string]string{"displayName": "Alice"}}}}}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"pullRequestId": 7, "title": "T", "status": "active",
+			"repository": map[string]any{"name": "Repo", "project": map[string]string{"name": "P"}}})
+	}))
+	defer srv.Close()
+
+	t.Chdir(t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("TFS_PAT", "x")
+	t.Setenv("TFS_ALLOW_INSECURE", "1")
+	if _, err := runCLI(t, "config", "set", "collectionUrl", srv.URL+"/Col"); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := runCLI(t, "pr", "show", "7", "--json")
+	if err != nil || strings.Contains(out, `"threads"`) || len(paths) != 1 {
+		t.Errorf("without --comments: %v paths=%v\n%s", err, paths, out)
+	}
+
+	paths = nil
+	out, err = runCLI(t, "pr", "show", "7", "--json", "--comments")
+	if err != nil || !strings.Contains(out, `"threads"`) || !strings.Contains(out, `"text": "Nice"`) {
+		t.Errorf("json with --comments: %v\n%s", err, out)
+	}
+	if len(paths) != 2 || paths[1] != "/Col/P/_apis/git/repositories/Repo/pullRequests/7/threads" {
+		t.Errorf("paths: %v", paths)
+	}
+
+	out, err = runCLI(t, "pr", "show", "7", "--no-tui", "--comments")
+	if err != nil || !strings.Contains(out, "Comments (1)") || !strings.Contains(out, "Nice") {
+		t.Errorf("text with --comments: %v\n%s", err, out)
+	}
+}
+
 func TestParseID(t *testing.T) {
 	for in, want := range map[string]int{"12": 12, "#12": 12, "!7": 7} {
 		if got, err := parseID(in); err != nil || got != want {

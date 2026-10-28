@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -45,9 +46,9 @@ func New(collection, apiVersion, pat string) *Client {
 // sameOrigin refuses redirects off the collection's scheme and host, so the token is never
 // forwarded elsewhere (net/http keeps Authorization on a same-host https -> http redirect).
 func sameOrigin(collection string) func(*http.Request, []*http.Request) error {
-	base, _ := url.Parse(collection)
+	base, err := url.Parse(collection)
 	return func(req *http.Request, via []*http.Request) error {
-		if base == nil || !strings.EqualFold(req.URL.Scheme, base.Scheme) || !strings.EqualFold(req.URL.Host, base.Host) {
+		if err != nil || originOf(req.URL) != originOf(base) {
 			return fmt.Errorf("refusing redirect to %s://%s: not the collection's server", req.URL.Scheme, req.URL.Host)
 		}
 		if len(via) >= 10 {
@@ -55,6 +56,16 @@ func sameOrigin(collection string) func(*http.Request, []*http.Request) error {
 		}
 		return nil
 	}
+}
+
+// originOf returns u's lower-cased scheme://host:port, with the scheme's default port filled in
+// so that https://host and https://host:443 compare equal.
+func originOf(u *url.URL) string {
+	scheme, port := strings.ToLower(u.Scheme), u.Port()
+	if port == "" {
+		port = map[string]string{"https": "443", "http": "80"}[scheme]
+	}
+	return scheme + "://" + net.JoinHostPort(strings.ToLower(u.Hostname()), port)
 }
 
 // Collection returns the collection URL.

@@ -17,6 +17,7 @@ ifeq ($(shell uname),Darwin)
 endif
 
 install: build ## Install tfs into $GOBIN
+	install -d $(GOBIN)
 	install -m 0755 bin/$(BINARY) $(GOBIN)/$(BINARY)
 
 test: ## Run tests

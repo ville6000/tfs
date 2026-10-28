@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -320,5 +321,21 @@ func TestRedirectOffOriginKeepsToken(t *testing.T) {
 	}
 	if leaked != "" {
 		t.Errorf("token sent to another server: %q", leaked)
+	}
+}
+
+func TestSameOriginDefaultPort(t *testing.T) {
+	check := sameOrigin("https://ADO.example.com/Col")
+	for target, ok := range map[string]bool{
+		"https://ado.example.com:443/Col/x": true,
+		"https://ado.example.com/Col/x":     true,
+		"https://ado.example.com:8443/x":    false,
+		"http://ado.example.com/x":          false,
+		"https://evil.example.com/x":        false,
+	} {
+		u, _ := url.Parse(target)
+		if err := check(&http.Request{URL: u}, nil); (err == nil) != ok {
+			t.Errorf("%s: got %v, want allowed=%v", target, err, ok)
+		}
 	}
 }

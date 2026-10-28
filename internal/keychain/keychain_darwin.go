@@ -102,13 +102,23 @@ func load() error {
 	return loadErr
 }
 
-// cfObjects collects CoreFoundation objects to release together.
-type cfObjects []uintptr
+// cfObjects collects CoreFoundation objects to release together. A failed create is
+// remembered, and dict then returns 0 instead of passing a NULL to CFDictionaryCreate.
+type cfObjects struct {
+	refs   []uintptr
+	failed bool
+}
 
-func (o *cfObjects) add(ref uintptr) uintptr { *o = append(*o, ref); return ref }
+func (o *cfObjects) add(ref uintptr) uintptr {
+	if ref == 0 {
+		o.failed = true
+	}
+	o.refs = append(o.refs, ref)
+	return ref
+}
 
 func (o *cfObjects) release() {
-	for _, r := range *o {
+	for _, r := range o.refs {
 		if r != 0 {
 			cfRelease(r)
 		}
@@ -131,6 +141,9 @@ func (o *cfObjects) data(s string) uintptr {
 }
 
 func (o *cfObjects) dict(pairs ...uintptr) uintptr {
+	if o.failed {
+		return 0
+	}
 	var keys, values []uintptr
 	for i := 0; i < len(pairs); i += 2 {
 		keys = append(keys, pairs[i])
@@ -142,9 +155,14 @@ func (o *cfObjects) dict(pairs ...uintptr) uintptr {
 	return o.add(ref)
 }
 
-func (o *cfObjects) itemQuery(origin string, extra ...uintptr) uintptr {
+// itemQuery returns the query for origin's item plus extra key/value pairs, or an error when a
+// CoreFoundation object could not be created.
+func (o *cfObjects) itemQuery(op, origin string, extra ...uintptr) (uintptr, error) {
 	pairs := []uintptr{kClass, kClassGenericPassword, kService, o.str(Service), kAccount, o.str(origin)}
-	return o.dict(append(pairs, extra...)...)
+	if q := o.dict(append(pairs, extra...)...); q != 0 {
+		return q, nil
+	}
+	return 0, fmt.Errorf("keychain %s: could not build the query", op)
 }
 
 func statusError(op string, status int32) error {
@@ -159,14 +177,20 @@ func statusError(op string, status int32) error {
 	return fmt.Errorf("keychain %s failed (OSStatus %d)", op, status)
 }
 
+func supported() bool { return true }
+
 func get(origin string) (string, error) {
 	if err := load(); err != nil {
 		return "", err
 	}
 	var o cfObjects
 	defer o.release()
+	q, err := o.itemQuery("read", origin, kReturnData, cfTrue, kMatchLimit, kMatchLimitOne)
+	if err != nil {
+		return "", err
+	}
 	var result uintptr
-	status := secItemCopyMatching(o.itemQuery(origin, kReturnData, cfTrue, kMatchLimit, kMatchLimitOne), &result)
+	status := secItemCopyMatching(q, &result)
 	if status != errSecSuccess {
 		return "", statusError("read", status)
 	}
@@ -184,7 +208,11 @@ func exists(origin string) (bool, error) {
 	}
 	var o cfObjects
 	defer o.release()
-	switch status := secItemCopyMatching(o.itemQuery(origin, kMatchLimit, kMatchLimitOne), nil); status {
+	q, err := o.itemQuery("lookup", origin, kMatchLimit, kMatchLimitOne)
+	if err != nil {
+		return false, err
+	}
+	switch status := secItemCopyMatching(q, nil); status {
 	case errSecSuccess:
 		return true, nil
 	case errSecItemNotFound:
@@ -200,7 +228,10 @@ func add(origin, token string) error {
 	}
 	var o cfObjects
 	defer o.release()
-	attrs := o.itemQuery(origin, kLabel, o.str("tfs: "+origin), kValueData, o.data(token))
+	attrs, err := o.itemQuery("write", origin, kLabel, o.str("tfs: "+origin), kValueData, o.data(token))
+	if err != nil {
+		return err
+	}
 	if status := secItemAdd(attrs, nil); status != errSecSuccess {
 		return statusError("write", status)
 	}
@@ -213,7 +244,11 @@ func remove(origin string) error {
 	}
 	var o cfObjects
 	defer o.release()
-	if status := secItemDelete(o.itemQuery(origin)); status != errSecSuccess {
+	q, err := o.itemQuery("delete", origin)
+	if err != nil {
+		return err
+	}
+	if status := secItemDelete(q); status != errSecSuccess {
 		return statusError("delete", status)
 	}
 	return nil

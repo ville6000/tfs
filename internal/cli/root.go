@@ -99,6 +99,13 @@ func (a *App) api() (*ado.Client, error) {
 	if err != nil {
 		return nil, err
 	}
+	// TFS_PAT isn't bound to a server like a stored token, so say when a project config or
+	// TFS_COLLECTION_URL sends it somewhere other than the global collectionUrl.
+	if os.Getenv(config.EnvPAT) != "" {
+		if global, err := config.Origin(cfg.Global.CollectionURL); err == nil && global != conn.Origin {
+			fmt.Fprintf(a.errOut, "warning: sending %s to %s, not the global collectionUrl's server %s\n", config.EnvPAT, conn.Origin, global)
+		}
+	}
 	a.client = ado.New(conn.CollectionURL, conn.APIVersion, conn.PAT)
 	a.client.UserIdentity = cfg.String("userIdentity")
 	return a.client, nil

@@ -35,6 +35,9 @@ The TFS_PAT environment variable, when set, takes precedence over the Keychain.`
 // global collectionUrl. Project config and TFS_COLLECTION_URL are ignored so that a repository
 // can't make you store the token for a different server.
 func (a *App) authTarget(flagURL string) (string, string, error) {
+	if !keychain.Supported() {
+		return "", "", fmt.Errorf("%w; set the %s environment variable instead", keychain.ErrUnsupported, config.EnvPAT)
+	}
 	raw := strings.TrimSpace(flagURL)
 	if raw == "" {
 		cfg, err := a.config()

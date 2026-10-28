@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/ville6000/tfs/internal/keychain"
 )
 
 func envMap(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
@@ -131,6 +133,34 @@ func TestConnectionSecurity(t *testing.T) {
 	}
 	if _, err := c.Set("defaultProject", "x", ScopeProject); err == nil {
 		t.Error("project scope outside repo must fail")
+	}
+}
+
+func TestConnectionStoredToken(t *testing.T) {
+	home, _, _ := setup(t)
+	stored := map[string]string{"https://ado.example.com": "kc"}
+	load := func(env map[string]string) *Config {
+		c, _ := LoadFrom(t.TempDir(), home, envMap(env))
+		c.Token = func(origin string) (string, error) {
+			if v, ok := stored[origin]; ok {
+				return v, nil
+			}
+			return "", keychain.ErrNotFound
+		}
+		return c
+	}
+
+	conn, err := load(map[string]string{EnvCollection: "HTTPS://ADO.example.com:443/Col"}).Connection()
+	if err != nil || conn.PAT != "kc" || conn.Origin != "https://ado.example.com" {
+		t.Errorf("stored token not used: %+v %v", conn, err)
+	}
+	if conn, _ := load(map[string]string{EnvCollection: "https://ado.example.com/Col", EnvPAT: "env"}).Connection(); conn.PAT != "env" {
+		t.Errorf("TFS_PAT must win, got %q", conn.PAT)
+	}
+	for _, other := range []string{"https://evil.example.com/Col", "https://ado.example.com:8443/Col", "https://ado.example.com@evil.example.com/Col"} {
+		if conn, err := load(map[string]string{EnvCollection: other}).Connection(); err == nil {
+			t.Errorf("%s must not get the stored token, got %q", other, conn.PAT)
+		}
 	}
 }
 

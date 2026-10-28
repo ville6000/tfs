@@ -59,15 +59,35 @@ Or download a binary for macOS, Linux or Windows from the
 
 ```bash
 tfs config wizard                 # collection URL, default project, …
-export TFS_PAT=<personal access token>
+tfs auth login                    # store the personal access token in the macOS Keychain
 tfs wi list                       # interactive list of open work items
 ```
 
 ### Personal access token
 
-`tfs` authenticates with a personal access token read from the **`TFS_PAT`** environment
-variable. It is never written to disk. Create a token with **Custom defined** scopes and grant
-only what you use:
+`tfs` authenticates with a personal access token. On macOS, store it in the Keychain:
+
+```bash
+tfs auth login                    # prompts for the token (hidden)
+bw get notes TFS_PAT | tfs auth login   # or pipe it in, e.g. from a password manager
+tfs auth status                   # where the token comes from; never prints it
+tfs auth logout
+```
+
+`tfs auth login` checks the token against the server of the global `collectionUrl` (or
+`--url`) and stores it for that server only (`scheme://host[:port]`). Pointing `collectionUrl`
+at another server — from a project config or `TFS_COLLECTION_URL` — finds no token, so the
+token is never sent anywhere else, and `tfs` refuses redirects to other servers.
+
+The Keychain item trusts only the `tfs` binary that stored it, so tools that run as you, such
+as `security find-generic-password` or a coding agent, can use the token only through `tfs`,
+not read it. After upgrading `tfs`, macOS asks once whether the new binary may use the item.
+The Homebrew cask signs `tfs` with the hardened runtime, which stops other programs from
+injecting code into it or attaching a debugger to read the token.
+
+Elsewhere, or in CI, set the **`TFS_PAT`** environment variable; it takes precedence over the
+Keychain. The token is never written to the config files. Create a token with **Custom
+defined** scopes and grant only what you use:
 
 | Scope                      | Needed for                                                |
 |----------------------------|-----------------------------------------------------------|
@@ -302,7 +322,7 @@ Example project config, safe to commit:
 
 | Variable             | Purpose                                                    |
 |----------------------|------------------------------------------------------------|
-| `TFS_PAT`            | personal access token (required)                           |
+| `TFS_PAT`            | personal access token; overrides the Keychain (required outside macOS) |
 | `TFS_COLLECTION_URL` | overrides `collectionUrl` (handy in CI)                    |
 | `TFS_ALLOW_INSECURE` | allow `http://` collection URLs (development only)         |
 | `TFS_BROWSER`        | command used to open URLs instead of the system default    |
@@ -310,7 +330,7 @@ Example project config, safe to commit:
 ## Development
 
 ```bash
-make build      # ./bin/tfs
+make build      # ./bin/tfs (signed with the hardened runtime on macOS)
 make test       # go test -race ./...
 make lint       # go vet + golangci-lint
 ```
@@ -320,6 +340,7 @@ The code is organised as:
 - `internal/domain` — work item / pull request logic (slugs, filters, trees, branch names)
 - `internal/ado` — Azure DevOps Server REST client
 - `internal/config` — layered config files
+- `internal/keychain` — macOS Keychain storage for the token (Security framework via purego, no cgo)
 - `internal/git`, `internal/browser` — local integrations
 - `internal/tui` — Bubble Tea views; `internal/output` — static tables; `internal/ui` — shared styles
 - `internal/cli` — Cobra commands

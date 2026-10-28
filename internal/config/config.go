@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/ville6000/tfs/internal/keychain"
 )
 
 // Environment variables.
@@ -57,6 +59,8 @@ type Config struct {
 	Global      File
 	Project     File
 	Warnings    []string
+	// Token returns the stored token for a server origin (see Origin); nil disables the lookup.
+	Token func(origin string) (string, error)
 
 	env func(string) string
 }
@@ -71,7 +75,12 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	return LoadFrom(cwd, home, os.Getenv)
+	c, err := LoadFrom(cwd, home, os.Getenv)
+	if err != nil {
+		return nil, err
+	}
+	c.Token = keychain.Get
+	return c, nil
 }
 
 // LoadFrom reads configuration for the given directory, home and environment (for tests).
@@ -246,39 +255,79 @@ func (c *Config) Set(name, value string, scope Scope) (string, error) {
 // Connection is everything needed to talk to the server.
 type Connection struct {
 	CollectionURL string
-	APIVersion    string
-	PAT           string
+	// Origin is the normalized scheme://host[:port] of CollectionURL; stored tokens are keyed by it.
+	Origin     string
+	APIVersion string
+	PAT        string
 }
 
-// Connection validates and returns the server connection settings.
+// Origin returns the normalized scheme://host[:port] of a URL, which is what a stored token is
+// bound to: pointing collectionUrl at another server never sends it the token.
+func Origin(raw string) (string, error) {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Hostname() == "" {
+		return "", fmt.Errorf("invalid collection URL %q", raw)
+	}
+	if u.User != nil {
+		return "", fmt.Errorf("collection URL %q must not contain credentials", raw)
+	}
+	scheme, host, port := strings.ToLower(u.Scheme), strings.ToLower(u.Hostname()), u.Port()
+	if (scheme == "https" && port == "443") || (scheme == "http" && port == "80") {
+		port = ""
+	}
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	if port != "" {
+		host += ":" + port
+	}
+	return scheme + "://" + host, nil
+}
+
+// Connection validates and returns the server connection settings. The token comes from
+// TFS_PAT, or else from the token stored for the collection's origin.
 func (c *Config) Connection() (Connection, error) {
 	raw := c.String("collectionUrl")
 	if raw == "" {
 		return Connection{}, fmt.Errorf("no collection URL configured; run `tfs config wizard` or `tfs config set collectionUrl <url>`")
 	}
-	u, err := url.Parse(raw)
-	if err != nil || u.Host == "" {
-		return Connection{}, fmt.Errorf("invalid collection URL %q", raw)
+	origin, err := Origin(raw)
+	if err != nil {
+		return Connection{}, err
 	}
+	u, _ := url.Parse(strings.TrimSpace(raw))
 	switch strings.ToLower(u.Scheme) {
 	case "https":
 	case "http":
-		if !truthy(c.getenv(EnvAllowInsecure)) {
+		if !c.AllowInsecure() {
 			return Connection{}, fmt.Errorf("refusing to send the personal access token over http; use https, or set %s=1 (development only)", EnvAllowInsecure)
 		}
 	default:
 		return Connection{}, fmt.Errorf("unsupported collection URL scheme %q; only https is supported", u.Scheme)
 	}
 	pat := strings.TrimSpace(c.getenv(EnvPAT))
+	if pat == "" && c.Token != nil {
+		stored, err := c.Token(origin)
+		switch {
+		case err == nil:
+			pat = strings.TrimSpace(stored)
+		case !errors.Is(err, keychain.ErrNotFound) && !errors.Is(err, keychain.ErrUnsupported):
+			return Connection{}, fmt.Errorf("could not read the token for %s: %w", origin, err)
+		}
+	}
 	if pat == "" {
-		return Connection{}, fmt.Errorf("no personal access token; set the %s environment variable", EnvPAT)
+		return Connection{}, fmt.Errorf("no personal access token for %s; run `tfs auth login`, or set the %s environment variable", origin, EnvPAT)
 	}
 	return Connection{
-		CollectionURL: strings.TrimRight(raw, "/"),
+		CollectionURL: strings.TrimRight(strings.TrimSpace(raw), "/"),
+		Origin:        origin,
 		APIVersion:    c.String("apiVersion"),
 		PAT:           pat,
 	}, nil
 }
+
+// AllowInsecure reports whether TFS_ALLOW_INSECURE permits sending the token over http.
+func (c *Config) AllowInsecure() bool { return truthy(c.getenv(EnvAllowInsecure)) }
 
 func (c *Config) getenv(k string) string {
 	if c.env == nil {

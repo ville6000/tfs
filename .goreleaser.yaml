@@ -62,5 +62,8 @@ homebrew_casks:
       postflight_steps do
         on_macos do
           run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "tfs"], chdir: "."
+          # Ad-hoc sign with the hardened runtime, so other programs can't inject code into
+          # tfs or attach a debugger to read the token it loads from the Keychain.
+          run "/usr/bin/codesign", args: ["--force", "--sign", "-", "--options", "runtime", "tfs"], chdir: "."
         end
       end

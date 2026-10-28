@@ -39,7 +39,8 @@ func (a *App) configCmd() *cobra.Command {
 The global config lives at $XDG_CONFIG_HOME/tfs/config.json or ~/.config/tfs/config.json.
 Inside a git repository, a project config (.config/tfs.json or .tfs.json at the repository
 root) is merged over it field by field; writes go there by default (use --global to override).
-The personal access token is never stored: set the TFS_PAT environment variable.
+The personal access token is never written to these files: store it in the macOS Keychain
+with 'tfs auth login', or set the TFS_PAT environment variable.
 
 ` + keysHelp(),
 	}
@@ -86,11 +87,13 @@ func (a *App) configListCmd() *cobra.Command {
 				v, _ := cfg.Get(k.Name)
 				rows = append(rows, []output.Cell{{Text: k.Name, Style: ui.Bold}, {Text: ui.OrDash(v.Value)}, {Text: v.Source, Style: ui.Muted}})
 			}
-			pat := "not set"
-			if os.Getenv(config.EnvPAT) != "" {
-				pat = "set"
+			token := "not set"
+			if origin, err := config.Origin(cfg.String("collectionUrl")); err == nil {
+				token = tokenSource(origin)
+			} else if os.Getenv(config.EnvPAT) != "" {
+				token = tokenSource("")
 			}
-			rows = append(rows, []output.Cell{{Text: config.EnvPAT, Style: ui.Bold}, {Text: pat}, {Text: "env", Style: ui.Muted}})
+			rows = append(rows, []output.Cell{{Text: "token", Style: ui.Bold}, {Text: token}, {}})
 			output.Table(a.out, []string{"KEY", "VALUE", "SOURCE"}, rows, 0)
 			a.printf("\nglobal:  %s\n", cfg.GlobalPath)
 			if cfg.ProjectRoot != "" {
@@ -234,7 +237,7 @@ func (a *App) configWizardCmd() *cobra.Command {
 				a.printf("Saved %s\n", p)
 			}
 			if os.Getenv(config.EnvPAT) == "" {
-				a.printf("\nNext: create a personal access token (scopes: Work Items read & write, Code read)\nand export it:  export %s=<token>\n", config.EnvPAT)
+				a.printf("\nNext: create a personal access token (scopes: Work Items read & write, Code read)\nand store it in the Keychain:  tfs auth login  (or export %s=<token>)\n", config.EnvPAT)
 			}
 			return nil
 		},

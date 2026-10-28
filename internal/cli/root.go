@@ -23,6 +23,7 @@ import (
 
 // App carries state shared by all commands.
 type App struct {
+	in      io.Reader
 	out     io.Writer
 	errOut  io.Writer
 	noTUI   bool
@@ -35,7 +36,7 @@ type App struct {
 
 // Execute runs the CLI and returns the process exit code.
 func Execute(version string) int {
-	app := &App{out: os.Stdout, errOut: os.Stderr}
+	app := &App{in: os.Stdin, out: os.Stdout, errOut: os.Stderr}
 	root := app.rootCmd(version)
 	if err := root.Execute(); err != nil {
 		if errors.Is(err, tui.ErrAborted) {
@@ -57,7 +58,8 @@ Browse, create and update work items, view the backlog hierarchy, list and check
 requests, and create git worktrees straight from a work item. Lists, trees and detail views
 are interactive when run in a terminal; pass --no-tui or --json for scripting.
 
-Authentication uses a personal access token from the TFS_PAT environment variable.
+Authentication uses a personal access token, stored in the macOS Keychain with
+'tfs auth login' or read from the TFS_PAT environment variable.
 Run 'tfs config wizard' to get started.`,
 		Version:       version,
 		SilenceUsage:  true,
@@ -66,7 +68,7 @@ Run 'tfs config wizard' to get started.`,
 	root.PersistentFlags().BoolVar(&a.noTUI, "no-tui", false, "print static output instead of the interactive view")
 	root.PersistentFlags().BoolVar(&a.jsonOut, "json", false, "print JSON (implies --no-tui)")
 	root.PersistentFlags().StringVarP(&a.project, "project", "p", "", "team project (default: defaultProject config, then the git remote)")
-	root.AddCommand(a.workItemCmd(), a.pullRequestCmd(), a.buildCmd(), a.releaseCmd(), a.boardCmd(), a.configCmd())
+	root.AddCommand(a.workItemCmd(), a.pullRequestCmd(), a.buildCmd(), a.releaseCmd(), a.boardCmd(), a.configCmd(), a.authCmd())
 	return root
 }
 

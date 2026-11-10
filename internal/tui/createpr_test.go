@@ -113,3 +113,24 @@ func TestNewPullRequestFromList(t *testing.T) {
 		t.Errorf("status %+v announced %v reloaded %v", status, announced, reloaded)
 	}
 }
+
+// Yes/No sit at the left edge like the other fields, not centered under a long description.
+func TestCreatePullRequestButtonsAlignLeft(t *testing.T) {
+	prep := PullRequestPrep{Repository: "Repo", Commits: "- Add x\n- Fix y",
+		Draft: domain.PullRequestDraft{SourceBranch: "feature/9-x", TargetBranch: "main", Title: "Add x"}}
+	form := NewCreatePullRequest(&Actions{}, prep)
+	form.SetSize(100, 60)
+	run(form.Init())
+	var rows int
+	for _, line := range strings.Split(ansi.Strip(form.View()), "\n") {
+		if strings.Contains(line, "Yes") && strings.Contains(line, "No") {
+			rows++
+			if indent := len(line) - len(strings.TrimLeft(line, " ┃│")); indent > 4 {
+				t.Errorf("buttons indented by %d: %q", indent, line)
+			}
+		}
+	}
+	if rows != 2 {
+		t.Fatalf("want 2 button rows, got %d", rows)
+	}
+}

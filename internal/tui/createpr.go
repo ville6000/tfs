@@ -8,6 +8,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/ville6000/tfs/internal/domain"
 	"github.com/ville6000/tfs/internal/ui"
@@ -68,9 +69,9 @@ func NewCreatePullRequest(act *Actions, prep PullRequestPrep) *CreatePullRequest
 		n := strings.Count(prep.Commits, "\n") + 1
 		fields = append(fields, huh.NewConfirm().Title("Add the branch's commits to the description?").
 			Description(fmt.Sprintf("%d commit(s) not on %s, as a Markdown list after the description", n, d.TargetBranch)).
-			Value(&c.commits))
+			WithButtonAlignment(lipgloss.Left).Value(&c.commits))
 	}
-	fields = append(fields, huh.NewConfirm().Title("Draft?").Value(&c.draft))
+	fields = append(fields, huh.NewConfirm().Title("Draft?").WithButtonAlignment(lipgloss.Left).Value(&c.draft))
 	c.form = huh.NewForm(huh.NewGroup(fields...)).WithTheme(huh.ThemeFunc(huh.ThemeCharm)).WithShowHelp(true)
 	// Read the values when the form completes, not when it is built.
 	c.form.SubmitCmd = func() tea.Msg {

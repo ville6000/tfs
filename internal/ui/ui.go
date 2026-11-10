@@ -243,7 +243,40 @@ func RenderPullRequest(pr domain.PullRequest, width int, styled bool) string {
 	if desc == "" {
 		desc = "_No description._"
 	}
+	if pr.Threads != nil {
+		desc += "\n\n" + ThreadsMarkdown(pr.Threads)
+	}
 	b.WriteString("\n" + RenderMarkdown(desc, width, styled))
+	return b.String()
+}
+
+// ThreadsMarkdown renders the visible pull request comment threads as Markdown.
+func ThreadsMarkdown(threads []domain.CommentThread) string {
+	visible := domain.VisibleThreads(threads)
+	var b strings.Builder
+	fmt.Fprintf(&b, "## Comments (%d)\n\n", len(visible))
+	if len(visible) == 0 {
+		b.WriteString("_No comments._\n")
+	}
+	for i, t := range visible {
+		if i > 0 {
+			b.WriteString("---\n\n")
+		}
+		where := "General"
+		if t.FilePath != "" {
+			where = t.FilePath
+			if t.Line > 0 {
+				where += fmt.Sprintf(":%d", t.Line)
+			}
+		}
+		if t.Status != "" {
+			where += " · " + t.Status
+		}
+		b.WriteString("### " + where + "\n\n")
+		for _, c := range t.Comments {
+			fmt.Fprintf(&b, "**%s** · %s\n\n%s\n\n", c.Author, FormatTime(c.Created), strings.TrimSpace(c.Text))
+		}
+	}
 	return b.String()
 }
 

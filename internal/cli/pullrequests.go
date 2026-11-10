@@ -100,7 +100,8 @@ func (a *App) pickPullRequest(ctx context.Context, args []string, title string) 
 }
 
 func (a *App) prShowCmd() *cobra.Command {
-	return &cobra.Command{
+	var comments bool
+	cmd := &cobra.Command{
 		Use:   "show [id]",
 		Short: "Show a pull request (picker when id is omitted)",
 		Args:  cobra.MaximumNArgs(1),
@@ -108,6 +109,15 @@ func (a *App) prShowCmd() *cobra.Command {
 			pr, err := a.pickPullRequest(cmd.Context(), args, "select a pull request")
 			if err != nil {
 				return err
+			}
+			if comments {
+				client, err := a.api()
+				if err != nil {
+					return err
+				}
+				if pr.Threads, err = client.PullRequestThreads(cmd.Context(), pr.Project, pr.Repository, pr.ID); err != nil {
+					return err
+				}
 			}
 			if a.interactive() {
 				return tui.Run(tui.NewPullRequestDetail(a.actions(), pr))
@@ -123,6 +133,8 @@ func (a *App) prShowCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&comments, "comments", false, "include comment threads")
+	return cmd
 }
 
 func (a *App) prOpenCmd() *cobra.Command {

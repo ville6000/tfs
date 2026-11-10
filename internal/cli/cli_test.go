@@ -190,3 +190,19 @@ func TestParseID(t *testing.T) {
 		}
 	}
 }
+
+func TestPullRequestCreateFlagsNeedSubmit(t *testing.T) {
+	for _, args := range [][]string{
+		{"pr", "create", "--title", "x"},
+		{"pr", "create", "--draft"},
+		{"pr", "create", "--work-item", "1"},
+		{"pr", "create", "--no-push"},
+	} {
+		if _, err := runCLI(t, args...); err == nil || !strings.Contains(err.Error(), "requires --submit") {
+			t.Errorf("%v: %v", args, err)
+		}
+	}
+	if _, err := runCLI(t, "pr", "create", "--submit", "--print"); err == nil || !strings.Contains(err.Error(), "cannot be used together") {
+		t.Errorf("--submit --print: %v", err)
+	}
+}

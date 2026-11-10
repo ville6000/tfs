@@ -329,3 +329,60 @@ func TestTreeSiblings(t *testing.T) {
 		t.Error("unknown id")
 	}
 }
+
+func TestWorkItemIDFromBranch(t *testing.T) {
+	cases := []struct {
+		template, branch string
+		want             int
+	}{
+		{"", "feature/42-add-thing", 42},
+		{"", "feature/42-", 42},
+		{"", "feature/add-thing", 0},
+		{"", "release/2024", 0},
+		{"", "xfeature/42-a", 0},
+		{"{type}/{id}", "user-story/7", 7},
+		{"{type}/{id}", "user-story/7/x", 0},
+		{"wi.{id}+{slug}", "wi.9+a", 9},
+		{"wi.{id}+{slug}", "wiX9+a", 0},
+		{"{slug}", "feature/42-x", 0},
+	}
+	for _, c := range cases {
+		got, ok := WorkItemIDFromBranch(c.template, c.branch)
+		if got != c.want || ok != (c.want > 0) {
+			t.Errorf("WorkItemIDFromBranch(%q, %q) = %d, %v; want %d", c.template, c.branch, got, ok, c.want)
+		}
+	}
+}
+
+func TestPullRequestDraftValidate(t *testing.T) {
+	ok := PullRequestDraft{Project: "P", RepositoryID: "r", SourceBranch: "f", TargetBranch: "main", Title: " T "}
+	if err := ok.Validate(); err != nil || ok.Title != "T" {
+		t.Fatalf("valid draft: %v, title %q", err, ok.Title)
+	}
+	for name, mut := range map[string]func(*PullRequestDraft){
+		"no title":      func(d *PullRequestDraft) { d.Title = "  " },
+		"same branch":   func(d *PullRequestDraft) { d.TargetBranch = "f" },
+		"no repo":       func(d *PullRequestDraft) { d.RepositoryID = "" },
+		"bad work item": func(d *PullRequestDraft) { d.WorkItemIDs = []int{0} },
+	} {
+		d := ok
+		mut(&d)
+		if err := d.Validate(); err == nil {
+			t.Errorf("%s: expected error", name)
+		}
+	}
+}
+
+func TestParseWorkItemIDs(t *testing.T) {
+	if ids, err := ParseWorkItemIDs(" #1, 2 3 "); err != nil || len(ids) != 3 || ids[0] != 1 || ids[2] != 3 {
+		t.Errorf("ids %v %v", ids, err)
+	}
+	if ids, err := ParseWorkItemIDs(""); err != nil || ids != nil {
+		t.Errorf("empty: %v %v", ids, err)
+	}
+	for _, bad := range []string{"1, x", "0"} {
+		if _, err := ParseWorkItemIDs(bad); err == nil {
+			t.Errorf("%q: expected error", bad)
+		}
+	}
+}

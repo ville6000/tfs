@@ -26,7 +26,8 @@ enter details • o open in browser • s set state • a assign to me • w wor
   reorder items and the new order is saved to the server. Ancestors of matches stay visible so the
   tree stays connected.
 - **Pull requests** — list with approval status, view details and reviewers, open, check out the
-  source branch or create a worktree for review, open the create-PR page for the current branch.
+  source branch or create a worktree for review, and create a PR for the current branch — on the
+  server (pushing the branch and linking its work item) or via the create-PR page.
 - **Builds** — recent runs of your build pipelines (classic and YAML) with live status, each
   build's stages, jobs and tasks with their errors, and task logs.
 - **Releases** — a dashboard of your classic release pipelines showing what is deployed on each
@@ -94,12 +95,13 @@ defined** scopes and grant only what you use:
 |----------------------------|-----------------------------------------------------------|
 | Work Items — Read & write  | `wi …`, `board open` (Read is enough for list/show/tree)  |
 | Code — Read                | `pr …`                                                    |
+| Code — Read & write        | `pr create --submit`, `n` in the PR list                  |
 | Build — Read               | `build …`                                                 |
 | Release — Read             | `release` dashboard, history, `release show`, `release approvals` |
 | Build — Read, Work Items — Read | the work items of a release (`release show`)        |
 | Release — Read, write, execute & manage | `release approve`, `release reject`             |
 
-`pr checkout` and `wi worktree` run your local `git`, which uses your normal git credentials.
+`pr checkout`, `pr create --submit` and `wi worktree` run your local `git`, which uses your normal git credentials.
 
 The token is sent with HTTP Basic auth, so `tfs` refuses plain `http://` collection URLs. For a
 local test server set `TFS_ALLOW_INSECURE=1`.
@@ -173,7 +175,15 @@ tfs pr checkout 4567                         # fetch and switch to the source br
 tfs pr checkout 4567 --worktree              # or a worktree at ../<repo>-pr-4567
 tfs pr create                                # open the create-PR page for the current branch
 tfs pr create --target develop
+tfs pr create --submit                       # create it: push, title from last commit, link work item
+tfs pr create --submit --draft --title "Add reset endpoint" --description "Details"
+tfs pr create --submit --work-item 123 --work-item 124
 ```
+
+`pr create --submit` pushes the branch first when the remote lacks it or is behind (never forced;
+`--no-push` skips this) and links the work item whose id is in the branch name, per
+`branchTemplate`. In the interactive `pr list`, press `n` to create a pull request for the current
+branch from a form with the same defaults.
 
 ### Builds
 

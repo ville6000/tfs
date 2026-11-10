@@ -61,6 +61,44 @@ func (g Git) RemoteURL(ctx context.Context, remote string) (string, error) {
 	return g.run(ctx, "remote", "get-url", remote)
 }
 
+// HeadCommit returns the commit hash of HEAD.
+func (g Git) HeadCommit(ctx context.Context) (string, error) {
+	return g.run(ctx, "rev-parse", "HEAD")
+}
+
+// LastCommitSubject returns the subject line of the commit at HEAD.
+func (g Git) LastCommitSubject(ctx context.Context) (string, error) {
+	return g.run(ctx, "log", "-1", "--format=%s")
+}
+
+// RemoteBranchCommit asks the remote for the commit its branch points at; it returns "" when
+// the remote has no such branch.
+func (g Git) RemoteBranchCommit(ctx context.Context, remote, branch string) (string, error) {
+	out, err := g.run(ctx, "ls-remote", "--heads", remote, "refs/heads/"+branch)
+	if err != nil {
+		return "", err
+	}
+	// ls-remote matches patterns by suffix, so keep only the exact ref.
+	for _, line := range strings.Split(out, "\n") {
+		if sha, ref, ok := strings.Cut(line, "\t"); ok && strings.TrimSpace(ref) == "refs/heads/"+branch {
+			return strings.TrimSpace(sha), nil
+		}
+	}
+	return "", nil
+}
+
+// Push pushes branch to the same-named branch on remote (never forced), setting it as the
+// upstream when setUpstream is true.
+func (g Git) Push(ctx context.Context, remote, branch string, setUpstream bool) error {
+	args := []string{"push"}
+	if setUpstream {
+		args = append(args, "--set-upstream")
+	}
+	args = append(args, remote, "refs/heads/"+branch+":refs/heads/"+branch)
+	_, err := g.run(ctx, args...)
+	return err
+}
+
 // Fetch fetches a branch from a remote, updating the remote-tracking ref.
 func (g Git) Fetch(ctx context.Context, remote, branch string) error {
 	_, err := g.run(ctx, "fetch", remote, fmt.Sprintf("+refs/heads/%s:refs/remotes/%s/%s", branch, remote, branch))

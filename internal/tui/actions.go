@@ -20,6 +20,10 @@ type Actions struct {
 	// Branch creates (or switches to) the work item's branch and describes what it did.
 	Branch     func(ctx context.Context, w domain.WorkItem) (string, error)
 	CheckoutPR func(ctx context.Context, pr domain.PullRequest, worktree bool) (string, error)
+	// PreparePR prefills a new pull request for the current branch; CreatePR pushes the branch
+	// when needed and creates the pull request.
+	PreparePR func(ctx context.Context) (PullRequestPrep, error)
+	CreatePR  func(ctx context.Context, d domain.PullRequestDraft) (domain.PullRequest, error)
 
 	// Team resolves the team whose backlog is reordered in a project.
 	Team func(ctx context.Context, project string) (string, error)
@@ -154,6 +158,32 @@ func (a *Actions) checkout(pr domain.PullRequest, worktree bool) tea.Cmd {
 			return StatusMsg{Text: err.Error(), Err: true}
 		}
 		return StatusMsg{Text: msg}
+	})
+}
+
+func (a *Actions) newPR() tea.Cmd {
+	if a.PreparePR == nil || a.CreatePR == nil {
+		return nil
+	}
+	return Busy("reading the current branch", func() tea.Msg {
+		prep, err := a.PreparePR(context.Background())
+		if err != nil {
+			return StatusMsg{Text: err.Error(), Err: true}
+		}
+		return CmdMsg{Push(NewCreatePullRequest(a, prep))}
+	})
+}
+
+func (a *Actions) createPR(d domain.PullRequestDraft) tea.Cmd {
+	return Busy("creating pull request", func() tea.Msg {
+		pr, err := a.CreatePR(context.Background(), d)
+		if err != nil {
+			return StatusMsg{Text: err.Error(), Err: true}
+		}
+		return CmdMsg{tea.Batch(
+			func() tea.Msg { return pullRequestCreatedMsg{pr} },
+			Status(fmt.Sprintf("created pull request !%d: %s", pr.ID, pr.URL)),
+		)}
 	})
 }
 

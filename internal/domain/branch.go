@@ -42,3 +42,33 @@ func BranchName(template string, w WorkItem) string {
 	)
 	return r.Replace(template)
 }
+
+// WorkItemIDFromBranch extracts the work item id from a branch named by the branch template,
+// e.g. 42 from "feature/42-add-thing" with the default template. ok is false when the branch
+// does not follow the template.
+func WorkItemIDFromBranch(template, branch string) (id int, ok bool) {
+	if strings.TrimSpace(template) == "" {
+		template = DefaultBranchTemplate
+	}
+	if !strings.Contains(template, "{id}") {
+		return 0, false
+	}
+	pattern := strings.NewReplacer(
+		`\{id\}`, `(\d+)`,
+		`\{slug\}`, `.*`,
+		`\{type\}`, `[^/]*`,
+	).Replace(regexp.QuoteMeta(template))
+	re, err := regexp.Compile("^" + pattern + "$")
+	if err != nil {
+		return 0, false
+	}
+	m := re.FindStringSubmatch(branch)
+	if m == nil {
+		return 0, false
+	}
+	n, err := strconv.Atoi(m[1])
+	if err != nil || n <= 0 {
+		return 0, false
+	}
+	return n, true
+}

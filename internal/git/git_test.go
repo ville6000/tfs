@@ -107,3 +107,39 @@ func TestBranchFromDefault(t *testing.T) {
 		t.Error("trunk is not a well-known name; expected an error asking for --base")
 	}
 }
+
+func TestPushAndRemoteBranchCommit(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	ctx := context.Background()
+	tmp := t.TempDir()
+	origin, clone := filepath.Join(tmp, "origin"), filepath.Join(tmp, "clone")
+	if err := os.MkdirAll(origin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	run(t, origin, "init", "-q", "--bare", "-b", "main")
+	run(t, tmp, "clone", "-q", origin, clone)
+	run(t, clone, "commit", "-q", "--allow-empty", "-m", "init")
+	run(t, clone, "push", "-q", "origin", "main", "main:x/feature/a") // x/feature/a suffix-matches feature/a in ls-remote
+	run(t, clone, "switch", "-q", "-c", "feature/a")
+	run(t, clone, "commit", "-q", "--allow-empty", "-m", "Add a thing")
+
+	g := Git{Dir: clone}
+	if s, err := g.LastCommitSubject(ctx); err != nil || s != "Add a thing" {
+		t.Fatalf("subject %q %v", s, err)
+	}
+	if c, err := g.RemoteBranchCommit(ctx, "origin", "feature/a"); err != nil || c != "" {
+		t.Fatalf("before push: %q %v", c, err)
+	}
+	if err := g.Push(ctx, "origin", "feature/a", true); err != nil {
+		t.Fatal(err)
+	}
+	head, _ := g.HeadCommit(ctx)
+	if c, err := g.RemoteBranchCommit(ctx, "origin", "feature/a"); err != nil || c != head || head == "" {
+		t.Fatalf("after push: %q (head %q) %v", c, head, err)
+	}
+	if up, err := g.run(ctx, "rev-parse", "--abbrev-ref", "@{upstream}"); err != nil || up != "origin/feature/a" {
+		t.Errorf("upstream %q %v", up, err)
+	}
+}

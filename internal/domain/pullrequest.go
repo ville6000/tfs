@@ -2,6 +2,7 @@ package domain
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -165,3 +166,60 @@ func FilterPullRequests(prs []PullRequest, q PullRequestQuery) []PullRequest {
 
 // TrimRef strips the refs/heads/ prefix from a git ref.
 func TrimRef(ref string) string { return strings.TrimPrefix(ref, "refs/heads/") }
+
+// PullRequestDraft is a new pull request to create.
+type PullRequestDraft struct {
+	Project      string
+	RepositoryID string
+	SourceBranch string
+	TargetBranch string
+	Title        string
+	Description  string
+	IsDraft      bool
+	WorkItemIDs  []int
+}
+
+// Validate checks the draft has what the server requires.
+func (d *PullRequestDraft) Validate() error {
+	d.Title = strings.TrimSpace(d.Title)
+	switch {
+	case strings.TrimSpace(d.Project) == "":
+		return fmt.Errorf("project is required")
+	case strings.TrimSpace(d.RepositoryID) == "":
+		return fmt.Errorf("repository is required")
+	case strings.TrimSpace(d.SourceBranch) == "" || strings.TrimSpace(d.TargetBranch) == "":
+		return fmt.Errorf("source and target branches are required")
+	case d.SourceBranch == d.TargetBranch:
+		return fmt.Errorf("source and target branch are both %q", d.SourceBranch)
+	case d.Title == "":
+		return fmt.Errorf("a pull request needs a title; pass --title")
+	}
+	for _, id := range d.WorkItemIDs {
+		if id <= 0 {
+			return fmt.Errorf("invalid work item id %d: must be a positive number", id)
+		}
+	}
+	return nil
+}
+
+// FormatWorkItemIDs renders ids as "#1, #2".
+func FormatWorkItemIDs(ids []int) string {
+	s := make([]string, len(ids))
+	for i, id := range ids {
+		s[i] = fmt.Sprintf("#%d", id)
+	}
+	return strings.Join(s, ", ")
+}
+
+// ParseWorkItemIDs parses a comma- or space-separated list such as "#1, 2"; empty input is none.
+func ParseWorkItemIDs(s string) ([]int, error) {
+	var ids []int
+	for _, f := range strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ' ' }) {
+		n, err := strconv.Atoi(strings.TrimPrefix(f, "#"))
+		if err != nil || n <= 0 {
+			return nil, fmt.Errorf("invalid work item id %q", f)
+		}
+		ids = append(ids, n)
+	}
+	return ids, nil
+}

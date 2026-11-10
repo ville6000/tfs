@@ -194,7 +194,9 @@ func (a *App) actions() *tui.Actions {
 		CheckoutPR: func(ctx context.Context, pr domain.PullRequest, worktree bool) (string, error) {
 			return a.checkoutPullRequest(ctx, pr, worktree, "")
 		},
-		Team: a.team,
+		Team:      a.team,
+		PreparePR: a.preparePullRequestForTUI,
+		CreatePR:  a.createPullRequestForTUI,
 	}
 }
 

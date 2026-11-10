@@ -384,3 +384,33 @@ func TestSameOriginDefaultPort(t *testing.T) {
 		}
 	}
 }
+
+func TestCreatePullRequest(t *testing.T) {
+	c, reqs := server(t, func(*http.Request, string) (int, any) {
+		return 201, map[string]any{"pullRequestId": 9, "title": "T", "isDraft": true,
+			"sourceRefName": "refs/heads/feature/1-x", "targetRefName": "refs/heads/main",
+			"repository": map[string]any{"name": "Repo", "project": map[string]string{"name": "My P"}}}
+	})
+	pr, err := c.CreatePullRequest(context.Background(), domain.PullRequestDraft{
+		Project: "My P", RepositoryID: "abc", SourceBranch: "feature/1-x", TargetBranch: "main",
+		Title: "T", IsDraft: true, WorkItemIDs: []int{1, 2},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pr.ID != 9 || !pr.IsDraft || pr.SourceBranch != "feature/1-x" || pr.URL != c.Collection()+"/My%20P/_git/Repo/pullrequest/9" {
+		t.Errorf("pr: %+v", pr)
+	}
+	r := (*reqs)[0]
+	if r.Method != http.MethodPost || r.Path != "/Col/My P/_apis/git/repositories/abc/pullrequests" || r.ContentType != "application/json" {
+		t.Errorf("request: %+v", r)
+	}
+	var body map[string]any
+	if err := json.Unmarshal([]byte(r.Body), &body); err != nil {
+		t.Fatal(err)
+	}
+	want := `{"isDraft":true,"sourceRefName":"refs/heads/feature/1-x","targetRefName":"refs/heads/main","title":"T","workItemRefs":[{"id":"1"},{"id":"2"}]}`
+	if got, _ := json.Marshal(body); string(got) != want {
+		t.Errorf("body:\n got %s\nwant %s", got, want)
+	}
+}

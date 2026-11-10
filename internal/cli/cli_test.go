@@ -94,7 +94,7 @@ func TestWorkItemListAndConfig(t *testing.T) {
 	}
 }
 
-func TestWorkItemUpdateDescription(t *testing.T) {
+func TestWorkItemUpdateRichText(t *testing.T) {
 	var bodies []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
@@ -125,18 +125,25 @@ func TestWorkItemUpdateDescription(t *testing.T) {
 	os.Stdin = rd
 	defer func() { os.Stdin = stdin }()
 
-	for _, tc := range []struct{ arg, want string }{
-		{"a<b\nc", `"value":"a&lt;b<br/>c"`},
-		{"-", `"value":"from<br/>stdin"`},
-		{"", `"value":""`},
+	for _, tc := range []struct{ flag, arg, want string }{
+		{"-d", "a<b\nc", `"path":"/fields/System.Description","value":"a&lt;b<br/>c"`},
+		{"-d", "-", `"path":"/fields/System.Description","value":"from<br/>stdin"`},
+		{"-d", "", `"path":"/fields/System.Description","value":""`},
+		{"--acceptance-criteria", "x & y", `"path":"/fields/Microsoft.VSTS.Common.AcceptanceCriteria","value":"x &amp; y"`},
+		{"--acceptance-criteria", "", `"path":"/fields/Microsoft.VSTS.Common.AcceptanceCriteria","value":""`},
 	} {
 		bodies = nil
-		if _, err := runCLI(t, "wi", "update", "7", "-d", tc.arg); err != nil {
+		if _, err := runCLI(t, "wi", "update", "7", tc.flag, tc.arg); err != nil {
 			t.Fatal(err)
 		}
-		if len(bodies) != 1 || !strings.Contains(bodies[0], `"path":"/fields/System.Description",`+tc.want) {
-			t.Errorf("-d %q: %v", tc.arg, bodies)
+		if len(bodies) != 1 || !strings.Contains(bodies[0], tc.want) {
+			t.Errorf("%s %q: %v", tc.flag, tc.arg, bodies)
 		}
+	}
+	bodies = nil
+	_, err = runCLI(t, "wi", "update", "7", "-d", "-", "--acceptance-criteria", "-")
+	if err == nil || !strings.Contains(err.Error(), "only one of") || len(bodies) != 0 {
+		t.Errorf("two stdin flags: %v %v", err, bodies)
 	}
 }
 

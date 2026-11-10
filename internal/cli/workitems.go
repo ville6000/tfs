@@ -368,7 +368,7 @@ func (a *App) wiOpenCmd() *cobra.Command {
 }
 
 func (a *App) wiCreateCmd() *cobra.Command {
-	var typ, title, desc, assigned string
+	var typ, title, desc, accept, assigned string
 	var tags []string
 	var parent int
 	cmd := &cobra.Command{
@@ -376,6 +376,7 @@ func (a *App) wiCreateCmd() *cobra.Command {
 		Short: "Create a work item (interactive form when --title is omitted)",
 		Example: `  tfs wi create -t bug --title "Login fails on Safari"
   tfs wi create -t task --title "Write docs" --parent 1234 -a @me
+  tfs wi create -t user-story --title "SSO" --acceptance-criteria "Users can sign in with SSO"
   tfs wi create`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -439,7 +440,7 @@ func (a *App) wiCreateCmd() *cobra.Command {
 			}
 			draft := domain.WorkItemDraft{
 				Project: project, Type: domain.ResolveSlug(typ), Title: title, Description: textToHTML(desc),
-				AssignedTo: assigned, Tags: cleanTags, ParentID: parent,
+				AcceptanceCriteria: textToHTML(accept), AssignedTo: assigned, Tags: cleanTags, ParentID: parent,
 			}
 			if err := draft.Validate(cfg.List("requireParentFor")); err != nil {
 				return err
@@ -459,6 +460,7 @@ func (a *App) wiCreateCmd() *cobra.Command {
 	fl.StringVarP(&typ, "type", "t", "", "work item type (default: the usual child type of --parent, else defaultType config, else Task)")
 	fl.StringVar(&title, "title", "", "title")
 	fl.StringVarP(&desc, "description", "d", "", "description (plain text)")
+	fl.StringVar(&accept, "acceptance-criteria", "", "acceptance criteria (plain text)")
 	fl.StringVarP(&assigned, "assigned-to", "a", "", "assignee ('@me' for yourself)")
 	fl.StringArrayVar(&tags, "tag", nil, "tag; repeatable")
 	fl.IntVar(&parent, "parent", 0, "parent work item id")
@@ -483,16 +485,18 @@ func textToHTML(s string) string {
 }
 
 func (a *App) wiUpdateCmd() *cobra.Command {
-	var state, title, assigned, desc string
+	var state, title, assigned, desc, accept string
 	cmd := &cobra.Command{
 		Use:   "update <id>",
-		Short: "Update a work item's state, title, assignee or description",
+		Short: "Update a work item's state, title, assignee, description or acceptance criteria",
 		Example: `  tfs wi update 1234 --state active
   tfs wi update 1234 --assigned-to @me
   tfs wi update 1234 --assigned-to ""   # unassign
   tfs wi update 1234 -d "Steps to reproduce: …"
   tfs wi update 1234 -d - < notes.md     # read the description from stdin
-  tfs wi update 1234 -d ""               # clear the description`,
+  tfs wi update 1234 -d ""               # clear the description
+  tfs wi update 1234 --acceptance-criteria "Users can sign in with SSO"
+  tfs wi update 1234 --acceptance-criteria - < criteria.md`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -523,20 +527,25 @@ func (a *App) wiUpdateCmd() *cobra.Command {
 				}
 				upd.AssignedTo = &who
 			}
+			if err := stdinOnce(cmd, "description", "acceptance-criteria"); err != nil {
+				return err
+			}
 			if cmd.Flags().Changed("description") {
-				text := desc
-				if text == "-" {
-					b, err := io.ReadAll(os.Stdin)
-					if err != nil {
-						return err
-					}
-					text = string(b)
+				h, err := richTextArg(desc)
+				if err != nil {
+					return err
 				}
-				h := textToHTML(text)
 				upd.Description = &h
 			}
+			if cmd.Flags().Changed("acceptance-criteria") {
+				h, err := richTextArg(accept)
+				if err != nil {
+					return err
+				}
+				upd.AcceptanceCriteria = &h
+			}
 			if upd.IsEmpty() {
-				return fmt.Errorf("nothing to update: pass --state, --title, --assigned-to or --description")
+				return fmt.Errorf("nothing to update: pass --state, --title, --assigned-to, --description or --acceptance-criteria")
 			}
 			w, err := client.UpdateWorkItem(ctx, id, upd)
 			if err != nil {
@@ -553,7 +562,34 @@ func (a *App) wiUpdateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&title, "title", "", "new title")
 	cmd.Flags().StringVarP(&assigned, "assigned-to", "a", "", "new assignee ('@me' for yourself, empty to unassign)")
 	cmd.Flags().StringVarP(&desc, "description", "d", "", "new description (plain text; '-' reads stdin, empty clears)")
+	cmd.Flags().StringVar(&accept, "acceptance-criteria", "", "new acceptance criteria (plain text; '-' reads stdin, empty clears)")
 	return cmd
+}
+
+// stdinOnce rejects reading stdin ('-') for more than one of the named flags.
+func stdinOnce(cmd *cobra.Command, names ...string) error {
+	var dash []string
+	for _, n := range names {
+		if f := cmd.Flags().Lookup(n); f != nil && f.Changed && f.Value.String() == "-" {
+			dash = append(dash, "--"+n)
+		}
+	}
+	if len(dash) > 1 {
+		return fmt.Errorf("only one of %s can read stdin ('-')", strings.Join(dash, ", "))
+	}
+	return nil
+}
+
+// richTextArg converts a plain-text flag value to HTML, reading stdin when the value is "-".
+func richTextArg(v string) (string, error) {
+	if v == "-" {
+		b, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return "", err
+		}
+		v = string(b)
+	}
+	return textToHTML(v), nil
 }
 
 func (a *App) wiCommentCmd() *cobra.Command {

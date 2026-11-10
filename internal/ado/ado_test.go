@@ -154,13 +154,16 @@ func TestCreateAndUpdate(t *testing.T) {
 	c, reqs := server(t, func(*http.Request, string) (int, any) {
 		return 200, map[string]any{"id": 5, "fields": map[string]any{"System.Title": "T"}}
 	})
-	_, err := c.CreateWorkItem(context.Background(), domain.WorkItemDraft{Project: "P", Type: "User Story", Title: " T ", Tags: []string{"a", "b"}, ParentID: 3})
+	_, err := c.CreateWorkItem(context.Background(), domain.WorkItemDraft{Project: "P", Type: "User Story", Title: " T ", AcceptanceCriteria: "AC", Tags: []string{"a", "b"}, ParentID: 3})
 	if err != nil {
 		t.Fatal(err)
 	}
 	r := (*reqs)[0]
 	if r.Path != "/Col/P/_apis/wit/workitems/$User%20Story" && r.Path != "/Col/P/_apis/wit/workitems/$User Story" {
 		t.Errorf("path %s", r.Path)
+	}
+	if !strings.Contains(r.Body, `Microsoft.VSTS.Common.AcceptanceCriteria","value":"AC"`) {
+		t.Errorf("create acceptance criteria: %s", r.Body)
 	}
 	if r.ContentType != jsonPatch || !strings.Contains(r.Body, `System.Tags","value":"a; b"`) || !strings.Contains(r.Body, "Hierarchy-Reverse") || !strings.Contains(r.Body, "/_apis/wit/workItems/3") {
 		t.Errorf("create body: %s", r.Body)
@@ -187,6 +190,13 @@ func TestCreateAndUpdate(t *testing.T) {
 	}
 	if r = (*reqs)[3]; strings.TrimSpace(r.Body) != `[{"op":"add","path":"/fields/System.Description","value":""}]` {
 		t.Errorf("clear description: %+v", r)
+	}
+	ac := "x"
+	if _, err := c.UpdateWorkItem(context.Background(), 5, domain.WorkItemUpdate{AcceptanceCriteria: &ac}); err != nil {
+		t.Fatal(err)
+	}
+	if r = (*reqs)[4]; strings.TrimSpace(r.Body) != `[{"op":"add","path":"/fields/Microsoft.VSTS.Common.AcceptanceCriteria","value":"x"}]` {
+		t.Errorf("update acceptance criteria: %+v", r)
 	}
 }
 

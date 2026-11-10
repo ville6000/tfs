@@ -44,13 +44,14 @@ type WorkItemDetail struct {
 
 // WorkItemDraft is the input for creating a work item.
 type WorkItemDraft struct {
-	Project     string
-	Type        string
-	Title       string
-	Description string
-	AssignedTo  string
-	Tags        []string
-	ParentID    int
+	Project            string
+	Type               string
+	Title              string
+	Description        string
+	AcceptanceCriteria string
+	AssignedTo         string
+	Tags               []string
+	ParentID           int
 }
 
 // Validate checks the draft. requireParentFor lists work item types that must have a parent
@@ -80,13 +81,15 @@ type WorkItemUpdate struct {
 	State      *string
 	Title      *string
 	AssignedTo *string
-	// Description is HTML; an empty string clears the field.
-	Description *string
+	// Description and AcceptanceCriteria are HTML; an empty string clears the field.
+	Description        *string
+	AcceptanceCriteria *string
 }
 
 // IsEmpty reports whether the update changes nothing.
 func (u WorkItemUpdate) IsEmpty() bool {
-	return u.State == nil && u.Title == nil && u.AssignedTo == nil && u.Description == nil
+	return u.State == nil && u.Title == nil && u.AssignedTo == nil && u.Description == nil &&
+		u.AcceptanceCriteria == nil
 }
 
 // WorkItemQuery describes a flat work item search.

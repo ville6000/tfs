@@ -375,6 +375,9 @@ func (c *Client) CreateWorkItem(ctx context.Context, d domain.WorkItemDraft) (do
 	if d.Description != "" {
 		ops = append(ops, patchOp{"add", "/fields/" + fieldDesc, d.Description})
 	}
+	if d.AcceptanceCriteria != "" {
+		ops = append(ops, patchOp{"add", "/fields/" + fieldAccept, d.AcceptanceCriteria})
+	}
 	if d.AssignedTo != "" {
 		ops = append(ops, patchOp{"add", "/fields/" + fieldAssigned, d.AssignedTo})
 	}
@@ -395,7 +398,7 @@ func (c *Client) CreateWorkItem(ctx context.Context, d domain.WorkItemDraft) (do
 	return c.mapWorkItem(&r), nil
 }
 
-// UpdateWorkItem changes state, title, assignee and/or description.
+// UpdateWorkItem changes state, title, assignee, description and/or acceptance criteria.
 func (c *Client) UpdateWorkItem(ctx context.Context, id int, upd domain.WorkItemUpdate) (domain.WorkItem, error) {
 	if upd.IsEmpty() {
 		return domain.WorkItem{}, errors.New("nothing to update")
@@ -412,6 +415,9 @@ func (c *Client) UpdateWorkItem(ctx context.Context, id int, upd domain.WorkItem
 	}
 	if upd.Description != nil {
 		ops = append(ops, patchOp{"add", "/fields/" + fieldDesc, *upd.Description})
+	}
+	if upd.AcceptanceCriteria != nil {
+		ops = append(ops, patchOp{"add", "/fields/" + fieldAccept, *upd.AcceptanceCriteria})
 	}
 	var r workItemResponse
 	if err := c.do(ctx, http.MethodPatch, c.url(fmt.Sprintf("/_apis/wit/workitems/%d", id), nil), jsonPatch, ops, &r); err != nil {

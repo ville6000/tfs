@@ -188,7 +188,7 @@ func WorkItemHeader(w domain.WorkItem) string {
 	return b.String()
 }
 
-// WorkItemMarkdown renders description, acceptance criteria and comments as Markdown.
+// WorkItemMarkdown renders description, repro steps, acceptance criteria and comments as Markdown.
 func WorkItemMarkdown(d domain.WorkItemDetail, collection string) string {
 	var b strings.Builder
 	section := func(title, html string) {
@@ -200,6 +200,9 @@ func WorkItemMarkdown(d domain.WorkItemDetail, collection string) string {
 		}
 	}
 	section("Description", d.Description)
+	if strings.TrimSpace(d.ReproSteps) != "" {
+		section("Repro steps", d.ReproSteps)
+	}
 	if strings.TrimSpace(d.AcceptanceCriteria) != "" {
 		section("Acceptance criteria", d.AcceptanceCriteria)
 	}

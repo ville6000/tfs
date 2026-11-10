@@ -39,6 +39,7 @@ type WorkItemDetail struct {
 	WorkItem
 	Description        string    `json:"description,omitempty"`
 	AcceptanceCriteria string    `json:"acceptanceCriteria,omitempty"`
+	ReproSteps         string    `json:"reproSteps,omitempty"`
 	Comments           []Comment `json:"comments,omitempty"`
 }
 
@@ -49,6 +50,7 @@ type WorkItemDraft struct {
 	Title              string
 	Description        string
 	AcceptanceCriteria string
+	ReproSteps         string
 	AssignedTo         string
 	Tags               []string
 	ParentID           int
@@ -81,15 +83,16 @@ type WorkItemUpdate struct {
 	State      *string
 	Title      *string
 	AssignedTo *string
-	// Description and AcceptanceCriteria are HTML; an empty string clears the field.
+	// Description, AcceptanceCriteria and ReproSteps are HTML; an empty string clears the field.
 	Description        *string
 	AcceptanceCriteria *string
+	ReproSteps         *string
 }
 
 // IsEmpty reports whether the update changes nothing.
 func (u WorkItemUpdate) IsEmpty() bool {
 	return u.State == nil && u.Title == nil && u.AssignedTo == nil && u.Description == nil &&
-		u.AcceptanceCriteria == nil
+		u.AcceptanceCriteria == nil && u.ReproSteps == nil
 }
 
 // WorkItemQuery describes a flat work item search.

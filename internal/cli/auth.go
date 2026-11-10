@@ -116,10 +116,7 @@ against the server before it is stored, unless --no-verify is given.`,
 }
 
 func (a *App) readToken(origin string) (string, error) {
-	in := a.in
-	if in == nil {
-		in = os.Stdin
-	}
+	in := a.stdin()
 	var raw []byte
 	var err error
 	if f, ok := in.(*os.File); ok && term.IsTerminal(f.Fd()) {

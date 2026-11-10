@@ -3,8 +3,6 @@ package cli
 import (
 	"context"
 	"fmt"
-	"io"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -368,19 +366,23 @@ func (a *App) wiOpenCmd() *cobra.Command {
 }
 
 func (a *App) wiCreateCmd() *cobra.Command {
-	var typ, title, desc, accept, assigned string
+	var typ, title, assigned string
+	var texts textFields
 	var tags []string
 	var parent int
 	cmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a work item (interactive form when --title is omitted)",
-		Example: `  tfs wi create -t bug --title "Login fails on Safari"
+		Example: `  tfs wi create -t bug --title "Login fails on Safari" --repro-steps - < steps.txt
   tfs wi create -t task --title "Write docs" --parent 1234 -a @me
   tfs wi create -t user-story --title "SSO" --acceptance-criteria "Users can sign in with SSO"
   tfs wi create`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
+			if err := texts.read(a, cmd); err != nil {
+				return err
+			}
 			client, err := a.api()
 			if err != nil {
 				return err
@@ -406,7 +408,10 @@ func (a *App) wiCreateCmd() *cobra.Command {
 				if !a.interactive() {
 					return fmt.Errorf("--title is required")
 				}
-				v := tui.CreateValues{Type: domain.ResolveSlug(typ), Description: desc, Tags: strings.Join(tags, ", "), AssignToMe: ado.IsMe(assigned)}
+				v := tui.CreateValues{
+					Type: domain.ResolveSlug(typ), Description: texts.desc.text, AcceptanceCriteria: texts.accept.text,
+					ReproSteps: texts.repro.text, Tags: strings.Join(tags, ", "), AssignToMe: ado.IsMe(assigned),
+				}
 				if parent > 0 {
 					v.Parent = strconv.Itoa(parent)
 				}
@@ -417,7 +422,8 @@ func (a *App) wiCreateCmd() *cobra.Command {
 				if err := tui.RunCreateForm(&v, types); err != nil {
 					return err
 				}
-				typ, title, desc = v.Type, v.Title, v.Description
+				typ, title = v.Type, v.Title
+				texts.desc.text, texts.accept.text, texts.repro.text = v.Description, v.AcceptanceCriteria, v.ReproSteps
 				tags = strings.Split(v.Tags, ",")
 				if v.AssignToMe {
 					assigned = "@me"
@@ -439,8 +445,9 @@ func (a *App) wiCreateCmd() *cobra.Command {
 				}
 			}
 			draft := domain.WorkItemDraft{
-				Project: project, Type: domain.ResolveSlug(typ), Title: title, Description: textToHTML(desc),
-				AcceptanceCriteria: textToHTML(accept), AssignedTo: assigned, Tags: cleanTags, ParentID: parent,
+				Project: project, Type: domain.ResolveSlug(typ), Title: title, Description: textToHTML(texts.desc.text),
+				AcceptanceCriteria: textToHTML(texts.accept.text), ReproSteps: textToHTML(texts.repro.text),
+				AssignedTo: assigned, Tags: cleanTags, ParentID: parent,
 			}
 			if err := draft.Validate(cfg.List("requireParentFor")); err != nil {
 				return err
@@ -449,6 +456,7 @@ func (a *App) wiCreateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			a.warnBugDescription(w, &texts)
 			if a.jsonOut {
 				return output.JSON(a.out, w)
 			}
@@ -459,8 +467,7 @@ func (a *App) wiCreateCmd() *cobra.Command {
 	fl := cmd.Flags()
 	fl.StringVarP(&typ, "type", "t", "", "work item type (default: the usual child type of --parent, else defaultType config, else Task)")
 	fl.StringVar(&title, "title", "", "title")
-	fl.StringVarP(&desc, "description", "d", "", "description (plain text)")
-	fl.StringVar(&accept, "acceptance-criteria", "", "acceptance criteria (plain text)")
+	texts.register(fl, false)
 	fl.StringVarP(&assigned, "assigned-to", "a", "", "assignee ('@me' for yourself)")
 	fl.StringArrayVar(&tags, "tag", nil, "tag; repeatable")
 	fl.IntVar(&parent, "parent", 0, "parent work item id")
@@ -485,26 +492,31 @@ func textToHTML(s string) string {
 }
 
 func (a *App) wiUpdateCmd() *cobra.Command {
-	var state, title, assigned, desc, accept string
+	var state, title, assigned string
+	var texts textFields
 	cmd := &cobra.Command{
 		Use:   "update <id>",
-		Short: "Update a work item's state, title, assignee, description or acceptance criteria",
+		Short: "Update a work item's state, title, assignee, description, acceptance criteria or repro steps",
 		Example: `  tfs wi update 1234 --state active
   tfs wi update 1234 --assigned-to @me
   tfs wi update 1234 --assigned-to ""   # unassign
-  tfs wi update 1234 -d "Steps to reproduce: …"
-  tfs wi update 1234 -d - < notes.md     # read the description from stdin
+  tfs wi update 1234 -d "Needs a migration for existing users"
+  tfs wi update 1234 -d - < notes.txt    # read the description from stdin
   tfs wi update 1234 -d ""               # clear the description
   tfs wi update 1234 --acceptance-criteria "Users can sign in with SSO"
-  tfs wi update 1234 --acceptance-criteria - < criteria.md`,
+  tfs wi update 1234 --repro-steps - < steps.txt   # what a Bug's web form shows`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
-			client, err := a.api()
+			id, err := parseID(args[0])
 			if err != nil {
 				return err
 			}
-			id, err := parseID(args[0])
+			// Read stdin before any request, so bad input fails without touching the server.
+			if err := texts.read(a, cmd); err != nil {
+				return err
+			}
+			client, err := a.api()
 			if err != nil {
 				return err
 			}
@@ -527,30 +539,15 @@ func (a *App) wiUpdateCmd() *cobra.Command {
 				}
 				upd.AssignedTo = &who
 			}
-			if err := stdinOnce(cmd, "description", "acceptance-criteria"); err != nil {
-				return err
-			}
-			if cmd.Flags().Changed("description") {
-				h, err := richTextArg(desc)
-				if err != nil {
-					return err
-				}
-				upd.Description = &h
-			}
-			if cmd.Flags().Changed("acceptance-criteria") {
-				h, err := richTextArg(accept)
-				if err != nil {
-					return err
-				}
-				upd.AcceptanceCriteria = &h
-			}
+			upd.Description, upd.AcceptanceCriteria, upd.ReproSteps = texts.desc.html(), texts.accept.html(), texts.repro.html()
 			if upd.IsEmpty() {
-				return fmt.Errorf("nothing to update: pass --state, --title, --assigned-to, --description or --acceptance-criteria")
+				return fmt.Errorf("nothing to update: pass --state, --title, --assigned-to, --description, --acceptance-criteria or --repro-steps")
 			}
 			w, err := client.UpdateWorkItem(ctx, id, upd)
 			if err != nil {
 				return err
 			}
+			a.warnBugDescription(w, &texts)
 			if a.jsonOut {
 				return output.JSON(a.out, w)
 			}
@@ -561,35 +558,76 @@ func (a *App) wiUpdateCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&state, "state", "s", "", "new state (slugs ok)")
 	cmd.Flags().StringVar(&title, "title", "", "new title")
 	cmd.Flags().StringVarP(&assigned, "assigned-to", "a", "", "new assignee ('@me' for yourself, empty to unassign)")
-	cmd.Flags().StringVarP(&desc, "description", "d", "", "new description (plain text; '-' reads stdin, empty clears)")
-	cmd.Flags().StringVar(&accept, "acceptance-criteria", "", "new acceptance criteria (plain text; '-' reads stdin, empty clears)")
+	texts.register(cmd.Flags(), true)
 	return cmd
 }
 
-// stdinOnce rejects reading stdin ('-') for more than one of the named flags.
-func stdinOnce(cmd *cobra.Command, names ...string) error {
-	var dash []string
-	for _, n := range names {
-		if f := cmd.Flags().Lookup(n); f != nil && f.Changed && f.Value.String() == "-" {
-			dash = append(dash, "--"+n)
+// textField is a plain-text flag for one of a work item's HTML fields. The value '-' reads the
+// text from stdin.
+type textField struct {
+	flag string // flag name; with dashes as spaces, also the field's name in messages
+	text string // the flag value; after textFields.read, the text from stdin if it was '-'
+	set  bool   // the flag was given
+}
+
+// html returns the field's new HTML, or nil when the flag was not given. Empty text clears it.
+func (f *textField) html() *string {
+	if !f.set {
+		return nil
+	}
+	h := textToHTML(f.text)
+	return &h
+}
+
+// textFields are the rich-text flags of wi create and wi update.
+type textFields struct {
+	desc, accept, repro textField
+}
+
+// register adds the flags; update says that an empty value clears the field.
+func (t *textFields) register(fl *pflag.FlagSet, update bool) {
+	usage := func(what string) string {
+		if update {
+			return "new " + what + " (plain text; '-' reads stdin, \"\" clears)"
 		}
+		return what + " (plain text; '-' reads stdin)"
 	}
-	if len(dash) > 1 {
-		return fmt.Errorf("only one of %s can read stdin ('-')", strings.Join(dash, ", "))
+	t.desc, t.accept, t.repro = textField{flag: "description"}, textField{flag: "acceptance-criteria"}, textField{flag: "repro-steps"}
+	fl.StringVarP(&t.desc.text, t.desc.flag, "d", "", usage("description"))
+	fl.StringVar(&t.accept.text, t.accept.flag, "", usage("acceptance criteria"))
+	fl.StringVar(&t.repro.text, t.repro.flag, "", usage("Bug repro steps"))
+}
+
+// read notes which flags were given and reads stdin for the one set to '-'. Only one flag can
+// read stdin per call.
+func (t *textFields) read(a *App, cmd *cobra.Command) error {
+	var stdin *textField
+	for _, f := range []*textField{&t.desc, &t.accept, &t.repro} {
+		if f.set = cmd.Flags().Changed(f.flag); !f.set || f.text != "-" {
+			continue
+		}
+		if stdin != nil {
+			return fmt.Errorf("only one of --%s and --%s can read stdin ('-')", stdin.flag, f.flag)
+		}
+		stdin = f
 	}
+	if stdin == nil {
+		return nil
+	}
+	text, err := a.readStdin(strings.ReplaceAll(stdin.flag, "-", " "))
+	if err != nil {
+		return err
+	}
+	stdin.text = text
 	return nil
 }
 
-// richTextArg converts a plain-text flag value to HTML, reading stdin when the value is "-".
-func richTextArg(v string) (string, error) {
-	if v == "-" {
-		b, err := io.ReadAll(os.Stdin)
-		if err != nil {
-			return "", err
-		}
-		v = string(b)
+// warnBugDescription points out that a Bug's web form shows Repro Steps rather than the
+// description, so a description set here is easy to miss there.
+func (a *App) warnBugDescription(w domain.WorkItem, t *textFields) {
+	if w.Type == "Bug" && strings.TrimSpace(t.desc.text) != "" && strings.TrimSpace(t.repro.text) == "" {
+		fmt.Fprintln(a.errOut, "warning: a Bug's web form usually shows Repro Steps, not Description; set those with --repro-steps")
 	}
-	return textToHTML(v), nil
 }
 
 func (a *App) wiCommentCmd() *cobra.Command {
@@ -611,11 +649,9 @@ func (a *App) wiCommentCmd() *cobra.Command {
 			var text string
 			switch {
 			case len(args) == 2 && args[1] == "-":
-				b, err := io.ReadAll(os.Stdin)
-				if err != nil {
+				if text, err = a.readStdin("comment"); err != nil {
 					return err
 				}
-				text = string(b)
 			case len(args) == 2:
 				text = args[1]
 			case a.interactive():

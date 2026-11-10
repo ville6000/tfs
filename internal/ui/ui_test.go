@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/ville6000/tfs/internal/domain"
 )
 
 func TestHTMLToMarkdownKeepsBreaks(t *testing.T) {
@@ -20,6 +22,14 @@ func TestHTMLToMarkdownKeepsBreaks(t *testing.T) {
 	}
 	if len(trimmed) != 3 || trimmed[0] != "Steps:" || trimmed[2] != "2. look" {
 		t.Errorf("line breaks lost: %q", trimmed)
+	}
+}
+
+func TestWorkItemMarkdownSections(t *testing.T) {
+	md := WorkItemMarkdown(domain.WorkItemDetail{ReproSteps: "Open the app"}, "")
+	if !strings.Contains(md, "## Description\n\n_none_") || !strings.Contains(md, "## Repro steps\n\nOpen the app") ||
+		strings.Contains(md, "Acceptance criteria") {
+		t.Errorf("sections:\n%s", md)
 	}
 }
 

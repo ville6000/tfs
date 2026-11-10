@@ -63,7 +63,9 @@ func parseBranch(template, branch string) (id int, slug string, ok bool) {
 		return 0, "", false
 	}
 	if i := re.SubexpIndex("id"); i > 0 {
-		id, _ = strconv.Atoi(m[i])
+		if id, err = strconv.Atoi(m[i]); err != nil {
+			return 0, "", false // too many digits to be a work item id
+		}
 	}
 	if i := re.SubexpIndex("slug"); i > 0 {
 		slug = m[i]
@@ -87,7 +89,8 @@ var leadingID = regexp.MustCompile(`^\d+[-_.]*`)
 // PullRequestTitleFromBranch turns a branch name into a pull request title without its prefix:
 // "feature/42-add-reset-endpoint" becomes "Add reset endpoint". The {slug} of the branch
 // template is used when the branch follows it; otherwise the last path segment without a
-// leading id. It returns "" when nothing is left.
+// leading id. It returns "" when no words are left, as for "release/2024-11" or
+// "hotfix/2.0.1", whose numbers say more with their prefix.
 func PullRequestTitleFromBranch(template, branch string) string {
 	words := ""
 	if _, slug, ok := parseBranch(template, branch); ok && slug != "" {
@@ -97,10 +100,10 @@ func PullRequestTitleFromBranch(template, branch string) string {
 		words = leadingID.ReplaceAllString(words, "")
 	}
 	words = strings.Join(strings.FieldsFunc(words, func(r rune) bool { return r == '-' || r == '_' || unicode.IsSpace(r) }), " ")
-	r := []rune(words)
-	if len(r) == 0 {
+	if !strings.ContainsFunc(words, unicode.IsLetter) {
 		return ""
 	}
+	r := []rune(words)
 	r[0] = unicode.ToUpper(r[0])
 	return string(r)
 }

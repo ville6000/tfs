@@ -96,12 +96,15 @@ defined** scopes and grant only what you use:
 | Work Items — Read & write  | `wi …`, `board open` (Read is enough for list/show/tree)  |
 | Code — Read                | `pr …`                                                    |
 | Code — Read & write        | `pr create --submit`, `n` in the PR list                  |
+| Code — Read & write, Work Items — Read | linking the branch's work item to a new PR (`pr create --submit`, `n`) |
 | Build — Read               | `build …`                                                 |
 | Release — Read             | `release` dashboard, history, `release show`, `release approvals` |
 | Build — Read, Work Items — Read | the work items of a release (`release show`)        |
 | Release — Read, write, execute & manage | `release approve`, `release reject`             |
 
 `pr checkout`, `pr create --submit` and `wi worktree` run your local `git`, which uses your normal git credentials.
+Inside the interactive views `git` cannot ask for a password or passphrase, so pushing from the
+PR list (`n`) needs a credential helper or an ssh agent.
 
 The token is sent with HTTP Basic auth, so `tfs` refuses plain `http://` collection URLs. For a
 local test server set `TFS_ALLOW_INSECURE=1`.
@@ -178,16 +181,18 @@ tfs pr create --target develop
 tfs pr create --submit                       # create it: push, title from branch, link work item
 tfs pr create --submit --draft --title "Add reset endpoint" --description "Details"
 tfs pr create --submit --fill-commits        # the branch's commits as the description
-tfs pr create --submit --work-item 123 --work-item 124
+tfs pr create --submit --work-item 123 --work-item '#124'
 ```
 
 `pr create --submit` pushes the branch first when the remote lacks it or is behind (never forced;
-`--no-push` skips this) and links the work item whose id is in the branch name, per
-`branchTemplate`. The title comes from the branch name without its prefix
-(`feature/42-add-reset-endpoint` → `Add reset endpoint`). The description is empty unless given;
-`--fill-commits` adds the branch's commits that are not on the target branch as a Markdown list. In the interactive `pr list`, press `n` to create a pull request for the current
-branch from a form with the same defaults; it offers to add the branch's commits to the
-description.
+`--no-push` skips this). When the remote branch has commits yours lacks, it is left alone with a
+warning, and the pull request shows the remote's commits until you pull and push. It links the
+work item whose id is in the branch name, per `branchTemplate`. The title comes from the branch
+name without its prefix (`feature/42-add-reset-endpoint` → `Add reset endpoint`). The
+description is empty unless given; `--fill-commits` adds the branch's commits that are not on
+the target branch as a Markdown list, cut short to fit the server's 4000-character limit. In the
+interactive `pr list`, press `n` to create a pull request for the current branch from a form
+with the same defaults; it offers to add the branch's commits to the description.
 
 ### Builds
 

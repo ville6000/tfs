@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -20,10 +21,8 @@ type Actions struct {
 	// Branch creates (or switches to) the work item's branch and describes what it did.
 	Branch     func(ctx context.Context, w domain.WorkItem) (string, error)
 	CheckoutPR func(ctx context.Context, pr domain.PullRequest, worktree bool) (string, error)
-	// PreparePR prefills a new pull request for the current branch; CreatePR pushes the branch
-	// when needed and creates the pull request.
+	// PreparePR prefills a new pull request for the current branch.
 	PreparePR func(ctx context.Context) (PullRequestPrep, error)
-	CreatePR  func(ctx context.Context, d domain.PullRequestDraft) (domain.PullRequest, error)
 
 	// Team resolves the team whose backlog is reordered in a project.
 	Team func(ctx context.Context, project string) (string, error)
@@ -161,12 +160,19 @@ func (a *Actions) checkout(pr domain.PullRequest, worktree bool) tea.Cmd {
 	})
 }
 
+// pullRequestTimeout bounds the git and server calls behind the new pull request form. git
+// cannot ask for credentials under the TUI, but a remote that stops answering must not leave
+// the form waiting forever.
+const pullRequestTimeout = 5 * time.Minute
+
 func (a *Actions) newPR() tea.Cmd {
-	if a.PreparePR == nil || a.CreatePR == nil {
+	if a.PreparePR == nil {
 		return nil
 	}
 	return Busy("reading the current branch", func() tea.Msg {
-		prep, err := a.PreparePR(context.Background())
+		ctx, cancel := context.WithTimeout(context.Background(), pullRequestTimeout)
+		defer cancel()
+		prep, err := a.PreparePR(ctx)
 		if err != nil {
 			return StatusMsg{Text: err.Error(), Err: true}
 		}
@@ -174,15 +180,23 @@ func (a *Actions) newPR() tea.Cmd {
 	})
 }
 
-func (a *Actions) createPR(d domain.PullRequestDraft) tea.Cmd {
+// createPR creates the draft of the form with id form, which closes on success and reopens with
+// the error otherwise.
+func (a *Actions) createPR(form int64, prep PullRequestPrep, d domain.PullRequestDraft, addCommits bool) tea.Cmd {
 	return Busy("creating pull request", func() tea.Msg {
-		pr, err := a.CreatePR(context.Background(), d)
+		ctx, cancel := context.WithTimeout(context.Background(), pullRequestTimeout)
+		defer cancel()
+		pr, warning, err := prep.Create(ctx, d, addCommits)
 		if err != nil {
-			return StatusMsg{Text: err.Error(), Err: true}
+			return pullRequestCreateFailedMsg{form: form, err: err}
+		}
+		text := fmt.Sprintf("created pull request !%d: %s", pr.ID, pr.URL)
+		if warning != "" {
+			text = fmt.Sprintf("created pull request !%d, but %s", pr.ID, warning)
 		}
 		return CmdMsg{tea.Batch(
-			func() tea.Msg { return pullRequestCreatedMsg{pr} },
-			Status(fmt.Sprintf("created pull request !%d: %s", pr.ID, pr.URL)),
+			func() tea.Msg { return pullRequestCreatedMsg{form: form, pr: pr} },
+			Status(text),
 		)}
 	})
 }

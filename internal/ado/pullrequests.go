@@ -152,9 +152,9 @@ func (c *Client) CreatePullRequest(ctx context.Context, d domain.PullRequestDraf
 		IsDraft       bool          `json:"isDraft,omitempty"`
 		WorkItemRefs  []workItemRef `json:"workItemRefs,omitempty"`
 	}{
-		SourceRefName: "refs/heads/" + d.SourceBranch,
-		TargetRefName: "refs/heads/" + d.TargetBranch,
-		Title:         d.Title,
+		SourceRefName: "refs/heads/" + domain.TrimRef(strings.TrimSpace(d.SourceBranch)),
+		TargetRefName: "refs/heads/" + domain.TrimRef(strings.TrimSpace(d.TargetBranch)),
+		Title:         strings.TrimSpace(d.Title),
 		Description:   d.Description,
 		IsDraft:       d.IsDraft,
 	}

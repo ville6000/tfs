@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf16"
 )
 
 // Approval summarizes reviewer votes on a pull request.
@@ -179,20 +180,36 @@ type PullRequestDraft struct {
 	WorkItemIDs  []int
 }
 
+// MaxPullRequestDescription is the longest pull request description the server accepts, in
+// characters (UTF-16 code units, as the server counts them).
+const MaxPullRequestDescription = 4000
+
+// textLength is the length of s as the server counts it.
+func textLength(s string) int {
+	n := 0
+	for _, r := range s {
+		n += max(1, utf16.RuneLen(r))
+	}
+	return n
+}
+
 // Validate checks the draft has what the server requires.
-func (d *PullRequestDraft) Validate() error {
-	d.Title = strings.TrimSpace(d.Title)
+func (d PullRequestDraft) Validate() error {
+	source, target := TrimRef(strings.TrimSpace(d.SourceBranch)), TrimRef(strings.TrimSpace(d.TargetBranch))
 	switch {
 	case strings.TrimSpace(d.Project) == "":
 		return fmt.Errorf("project is required")
 	case strings.TrimSpace(d.RepositoryID) == "":
 		return fmt.Errorf("repository is required")
-	case strings.TrimSpace(d.SourceBranch) == "" || strings.TrimSpace(d.TargetBranch) == "":
+	case source == "" || target == "":
 		return fmt.Errorf("source and target branches are required")
-	case d.SourceBranch == d.TargetBranch:
-		return fmt.Errorf("source and target branch are both %q", d.SourceBranch)
-	case d.Title == "":
+	case source == target:
+		return fmt.Errorf("source and target branch are both %q", source)
+	case strings.TrimSpace(d.Title) == "":
 		return fmt.Errorf("a pull request needs a title; pass --title")
+	}
+	if n := textLength(d.Description); n > MaxPullRequestDescription {
+		return fmt.Errorf("the description is %d characters; the server allows at most %d", n, MaxPullRequestDescription)
 	}
 	for _, id := range d.WorkItemIDs {
 		if id <= 0 {
@@ -236,11 +253,42 @@ func CommitListMarkdown(subjects []string) string {
 	return strings.TrimSuffix(b.String(), "\n")
 }
 
-// JoinDescription appends the commit list to a description, separated by a blank line.
+// JoinDescription appends the commit list to a description, separated by a blank line. When
+// the whole list would make the description longer than MaxPullRequestDescription, it is cut
+// short with a last line saying how many commits were left out. When not even that fits, the
+// list is added whole and Validate reports the length.
 func JoinDescription(description, commits string) string {
 	description, commits = strings.TrimSpace(description), strings.TrimSpace(commits)
-	if description == "" || commits == "" {
-		return description + commits
+	join := func(list string) string {
+		if description == "" || list == "" {
+			return description + list
+		}
+		return description + "\n\n" + list
 	}
-	return description + "\n\n" + commits
+	budget := MaxPullRequestDescription - textLength(description) // room left for the list
+	if description != "" {
+		budget -= 2 // the blank line before it
+	}
+	if commits == "" || textLength(commits) <= budget {
+		return join(commits)
+	}
+	more := func(n int) string {
+		if n == 1 {
+			return "- … and 1 more commit"
+		}
+		return fmt.Sprintf("- … and %d more commits", n)
+	}
+	lines := strings.Split(commits, "\n")
+	kept, used := 0, 0
+	for ; kept < len(lines); kept++ {
+		n := textLength(lines[kept]) + 1 // with its newline
+		if used+n+textLength(more(len(lines)-kept-1)) > budget {
+			break
+		}
+		used += n
+	}
+	if kept == 0 {
+		return join(commits)
+	}
+	return join(strings.Join(lines[:kept], "\n") + "\n" + more(len(lines)-kept))
 }

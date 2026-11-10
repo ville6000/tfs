@@ -392,8 +392,8 @@ func TestCreatePullRequest(t *testing.T) {
 			"repository": map[string]any{"name": "Repo", "project": map[string]string{"name": "My P"}}}
 	})
 	pr, err := c.CreatePullRequest(context.Background(), domain.PullRequestDraft{
-		Project: "My P", RepositoryID: "abc", SourceBranch: "feature/1-x", TargetBranch: "main",
-		Title: "T", IsDraft: true, WorkItemIDs: []int{1, 2},
+		Project: "My P", RepositoryID: "abc", SourceBranch: "feature/1-x", TargetBranch: "refs/heads/main",
+		Title: " T ", IsDraft: true, WorkItemIDs: []int{1, 2},
 	})
 	if err != nil {
 		t.Fatal(err)

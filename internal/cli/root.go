@@ -196,7 +196,6 @@ func (a *App) actions() *tui.Actions {
 		},
 		Team:      a.team,
 		PreparePR: a.preparePullRequestForTUI,
-		CreatePR:  a.createPullRequestForTUI,
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -14,6 +15,9 @@ import (
 // Git runs git in Dir (the current directory when empty).
 type Git struct {
 	Dir string
+	// NoPrompt keeps git and ssh from asking for a password or passphrase on the terminal, for
+	// running under a full-screen UI that owns it. Commands that need one fail instead.
+	NoPrompt bool
 }
 
 // Error is a failed git invocation.
@@ -31,19 +35,26 @@ func (e *Error) Error() string {
 	return fmt.Sprintf("git %s: %s", strings.Join(e.Args, " "), msg)
 }
 
+// run runs git and returns its trimmed stdout, which is also returned when git fails.
 func (g Git) run(ctx context.Context, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = g.Dir
+	if g.NoPrompt {
+		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+		detachFromTerminal(cmd)
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	if err := cmd.Run(); err != nil {
+	err := cmd.Run()
+	out := strings.TrimSpace(stdout.String())
+	if err != nil {
 		var ee *exec.ExitError
 		if !errors.As(err, &ee) {
-			return "", fmt.Errorf("could not run git: %w", err)
+			return out, fmt.Errorf("could not run git: %w", err)
 		}
-		return "", &Error{Args: args, ExitCode: ee.ExitCode(), Stderr: stderr.String()}
+		return out, &Error{Args: args, ExitCode: ee.ExitCode(), Stderr: stderr.String()}
 	}
-	return strings.TrimSpace(stdout.String()), nil
+	return out, nil
 }
 
 // Root returns the top-level directory of the repository.
@@ -61,46 +72,66 @@ func (g Git) RemoteURL(ctx context.Context, remote string) (string, error) {
 	return g.run(ctx, "remote", "get-url", remote)
 }
 
-// HeadCommit returns the commit hash of HEAD.
-func (g Git) HeadCommit(ctx context.Context) (string, error) {
-	return g.run(ctx, "rev-parse", "HEAD")
-}
-
 // CommitSubjects returns the subjects of the non-merge commits in HEAD but not in base,
 // oldest first.
 func (g Git) CommitSubjects(ctx context.Context, base string) ([]string, error) {
-	out, err := g.run(ctx, "log", "--reverse", "--no-merges", "--format=%s", base+"..HEAD")
+	// --no-show-signature: log.showSignature would mix gpg output into the subjects.
+	out, err := g.run(ctx, "log", "--reverse", "--no-merges", "--no-show-signature", "--format=%s", base+"..HEAD")
 	if err != nil || out == "" {
 		return nil, err
 	}
 	return strings.Split(out, "\n"), nil
 }
 
-// RemoteBranchCommit asks the remote for the commit its branch points at; it returns "" when
-// the remote has no such branch.
-func (g Git) RemoteBranchCommit(ctx context.Context, remote, branch string) (string, error) {
-	out, err := g.run(ctx, "ls-remote", "--heads", remote, "refs/heads/"+branch)
-	if err != nil {
-		return "", err
-	}
-	// ls-remote matches patterns by suffix, so keep only the exact ref.
+// PushResult is what a push did to the remote branch.
+type PushResult int
+
+// Push results.
+const (
+	PushUpToDate PushResult = iota // the remote branch already had the commit
+	PushCreated                    // the remote branch was created
+	PushUpdated                    // the remote branch was fast-forwarded
+	PushRejected                   // the remote branch has commits the local one lacks; nothing was pushed
+)
+
+// Push pushes branch to the same-named branch on remote, never forced. A branch new on the
+// remote gets it as its upstream. When the remote branch has commits the local branch lacks the
+// push is refused, which is reported as PushRejected rather than an error.
+func (g Git) Push(ctx context.Context, remote, branch string) (PushResult, error) {
+	ref := "refs/heads/" + branch
+	out, err := g.run(ctx, "push", "--porcelain", remote, ref+":"+ref)
+	// --porcelain prints "<flag>\t<from>:<to>\t<summary>" for each ref.
 	for _, line := range strings.Split(out, "\n") {
-		if sha, ref, ok := strings.Cut(line, "\t"); ok && strings.TrimSpace(ref) == "refs/heads/"+branch {
-			return strings.TrimSpace(sha), nil
+		flag, rest, ok := strings.Cut(line, "\t")
+		if !ok || !strings.HasPrefix(rest, ref+":"+ref+"\t") {
+			continue
+		}
+		switch strings.TrimSpace(flag) {
+		case "=":
+			return PushUpToDate, nil
+		case "*":
+			return PushCreated, g.setUpstream(ctx, remote, branch)
+		case "": // fast-forward
+			return PushUpdated, nil
+		case "!":
+			if strings.Contains(rest, "(fetch first)") || strings.Contains(rest, "(non-fast-forward)") {
+				return PushRejected, nil
+			}
 		}
 	}
-	return "", nil
+	if err == nil {
+		err = fmt.Errorf("git push did not report on %s: %s", ref, out)
+	}
+	return PushUpToDate, err
 }
 
-// Push pushes branch to the same-named branch on remote (never forced), setting it as the
-// upstream when setUpstream is true.
-func (g Git) Push(ctx context.Context, remote, branch string, setUpstream bool) error {
-	args := []string{"push"}
-	if setUpstream {
-		args = append(args, "--set-upstream")
+// setUpstream makes remote's branch the upstream of the local branch, as push --set-upstream
+// does, without needing a remote-tracking ref.
+func (g Git) setUpstream(ctx context.Context, remote, branch string) error {
+	if _, err := g.run(ctx, "config", "branch."+branch+".remote", remote); err != nil {
+		return err
 	}
-	args = append(args, remote, "refs/heads/"+branch+":refs/heads/"+branch)
-	_, err := g.run(ctx, args...)
+	_, err := g.run(ctx, "config", "branch."+branch+".merge", "refs/heads/"+branch)
 	return err
 }
 

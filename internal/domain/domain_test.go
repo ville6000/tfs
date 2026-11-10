@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -345,6 +346,7 @@ func TestWorkItemIDFromBranch(t *testing.T) {
 		{"wi.{id}+{slug}", "wi.9+a", 9},
 		{"wi.{id}+{slug}", "wiX9+a", 0},
 		{"{slug}", "feature/42-x", 0},
+		{"", "feature/99999999999999999999-x", 0},
 	}
 	for _, c := range cases {
 		got, ok := WorkItemIDFromBranch(c.template, c.branch)
@@ -355,15 +357,19 @@ func TestWorkItemIDFromBranch(t *testing.T) {
 }
 
 func TestPullRequestDraftValidate(t *testing.T) {
-	ok := PullRequestDraft{Project: "P", RepositoryID: "r", SourceBranch: "f", TargetBranch: "main", Title: " T "}
-	if err := ok.Validate(); err != nil || ok.Title != "T" {
-		t.Fatalf("valid draft: %v, title %q", err, ok.Title)
+	ok := PullRequestDraft{Project: "P", RepositoryID: "r", SourceBranch: "f", TargetBranch: "main", Title: " T ",
+		Description: strings.Repeat("é", MaxPullRequestDescription)}
+	if err := ok.Validate(); err != nil {
+		t.Fatalf("valid draft: %v", err)
 	}
 	for name, mut := range map[string]func(*PullRequestDraft){
-		"no title":      func(d *PullRequestDraft) { d.Title = "  " },
-		"same branch":   func(d *PullRequestDraft) { d.TargetBranch = "f" },
-		"no repo":       func(d *PullRequestDraft) { d.RepositoryID = "" },
-		"bad work item": func(d *PullRequestDraft) { d.WorkItemIDs = []int{0} },
+		"no title":         func(d *PullRequestDraft) { d.Title = "  " },
+		"same branch":      func(d *PullRequestDraft) { d.TargetBranch = "f" },
+		"same branch ref":  func(d *PullRequestDraft) { d.TargetBranch = "refs/heads/f" },
+		"no repo":          func(d *PullRequestDraft) { d.RepositoryID = "" },
+		"bad work item":    func(d *PullRequestDraft) { d.WorkItemIDs = []int{0} },
+		"long description": func(d *PullRequestDraft) { d.Description += "x" },
+		"long in UTF-16":   func(d *PullRequestDraft) { d.Description = strings.Repeat("😀", MaxPullRequestDescription/2+1) },
 	} {
 		d := ok
 		mut(&d)
@@ -396,6 +402,9 @@ func TestPullRequestTitleFromBranch(t *testing.T) {
 		{"", "users/v/123-ääkköset-ok", "Ääkköset ok"},
 		{"", "hotfix", "Hotfix"},
 		{"{id}/{slug}", "5/x", "X"},
+		{"", "release/2024-11", ""},
+		{"", "hotfix/2.0.1", ""},
+		{"", "feature/42-v2", "V2"},
 	}
 	for _, c := range cases {
 		if got := PullRequestTitleFromBranch(c.template, c.branch); got != c.want {
@@ -423,5 +432,29 @@ func TestJoinDescription(t *testing.T) {
 		if got := JoinDescription(c[0], c[1]); got != c[2] {
 			t.Errorf("JoinDescription(%q, %q) = %q, want %q", c[0], c[1], got, c[2])
 		}
+	}
+
+	// A list that would not fit is cut short, keeping the description within the limit.
+	subjects := make([]string, 200)
+	for i := range subjects {
+		subjects[i] = fmt.Sprintf("Commit number %03d with a subject of about fifty chars", i)
+	}
+	body := strings.Repeat("b", 1000)
+	got := JoinDescription(body, CommitListMarkdown(subjects))
+	lines := strings.Split(got, "\n")
+	if n := textLength(got); n > MaxPullRequestDescription || n < MaxPullRequestDescription-100 {
+		t.Errorf("length %d, want just under %d", n, MaxPullRequestDescription)
+	}
+	kept := len(lines) - 3 // the body, the blank line and the "more" line
+	if !strings.HasPrefix(got, body+"\n\n- Commit number 000") || lines[len(lines)-1] != fmt.Sprintf("- … and %d more commits", 200-kept) {
+		t.Errorf("cut list ends %q after %d commits", lines[len(lines)-1], kept)
+	}
+	if err := (PullRequestDraft{Project: "P", RepositoryID: "r", SourceBranch: "f", TargetBranch: "main", Title: "T", Description: got}).Validate(); err != nil {
+		t.Error(err)
+	}
+	// When the description leaves no room, the list is added whole for Validate to report.
+	full := strings.Repeat("b", MaxPullRequestDescription)
+	if got := JoinDescription(full, "- a\n- b"); got != full+"\n\n- a\n- b" {
+		t.Errorf("no room: %q", got[len(got)-10:])
 	}
 }

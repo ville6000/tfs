@@ -20,7 +20,7 @@ enter details • o open in browser • s set state • a assign to me • w wor
 ## Features
 
 - **Work items** — list, filter, show (description, acceptance criteria, comments rendered as
-  Markdown), create, update state/title/assignee, comment, open in the browser.
+  Markdown), create, update state/title/assignee/description, comment, open in the browser.
 - **Hierarchy tree** — Epic → Feature → Story → Task in backlog order with assignees, collapsible;
   reorder items and the new order is saved to the server. Ancestors of matches stay visible so the
   tree stays connected.
@@ -123,6 +123,8 @@ tfs wi create -t bug --title "Login fails" --parent 1200 -a @me
 tfs wi create --parent 1200 --title "Sign in with SSO"   # type follows the parent: Epic → Feature → Story → Task
 tfs wi create                                # interactive form
 tfs wi update 1234 --state active --assigned-to @me
+tfs wi update 1234 -d "Steps to reproduce: …"  # replace the description (plain text; -d "" clears)
+tfs wi update 1234 -d - < notes.md           # read the description from stdin
 tfs wi comment 1234 "Retested on staging"
 tfs wi comment 1234 - < notes.md            # read the comment from stdin
 tfs wi branch 1234                           # new branch feature/1234-<slug> from origin's default branch

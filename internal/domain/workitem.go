@@ -80,11 +80,13 @@ type WorkItemUpdate struct {
 	State      *string
 	Title      *string
 	AssignedTo *string
+	// Description is HTML; an empty string clears the field.
+	Description *string
 }
 
 // IsEmpty reports whether the update changes nothing.
 func (u WorkItemUpdate) IsEmpty() bool {
-	return u.State == nil && u.Title == nil && u.AssignedTo == nil
+	return u.State == nil && u.Title == nil && u.AssignedTo == nil && u.Description == nil
 }
 
 // WorkItemQuery describes a flat work item search.

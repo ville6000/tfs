@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 )
@@ -90,6 +91,52 @@ func TestWorkItemListAndConfig(t *testing.T) {
 	}
 	if _, err := runCLI(t, "wi", "show", "--no-tui"); err == nil || !strings.Contains(err.Error(), "id is required") {
 		t.Errorf("show without id: %v", err)
+	}
+}
+
+func TestWorkItemUpdateDescription(t *testing.T) {
+	var bodies []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, strings.TrimSpace(string(b)))
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": 7, "fields": map[string]any{"System.Title": "Hello"}})
+	}))
+	defer srv.Close()
+
+	t.Chdir(t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("TFS_PAT", "x")
+	t.Setenv("TFS_ALLOW_INSECURE", "1")
+	if _, err := runCLI(t, "config", "set", "collectionUrl", srv.URL+"/Col"); err != nil {
+		t.Fatal(err)
+	}
+
+	rd, wr, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = wr.WriteString("from\nstdin")
+	_ = wr.Close()
+	stdin := os.Stdin
+	os.Stdin = rd
+	defer func() { os.Stdin = stdin }()
+
+	for _, tc := range []struct{ arg, want string }{
+		{"a<b\nc", `"value":"a&lt;b<br/>c"`},
+		{"-", `"value":"from<br/>stdin"`},
+		{"", `"value":""`},
+	} {
+		bodies = nil
+		if _, err := runCLI(t, "wi", "update", "7", "-d", tc.arg); err != nil {
+			t.Fatal(err)
+		}
+		if len(bodies) != 1 || !strings.Contains(bodies[0], `"path":"/fields/System.Description",`+tc.want) {
+			t.Errorf("-d %q: %v", tc.arg, bodies)
+		}
 	}
 }
 

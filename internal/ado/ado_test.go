@@ -173,6 +173,21 @@ func TestCreateAndUpdate(t *testing.T) {
 	if r.Method != "PATCH" || strings.TrimSpace(r.Body) != `[{"op":"add","path":"/fields/System.State","value":"Active"}]` {
 		t.Errorf("update: %+v", r)
 	}
+	desc := "a&lt;b<br/>c"
+	if _, err := c.UpdateWorkItem(context.Background(), 5, domain.WorkItemUpdate{Description: &desc}); err != nil {
+		t.Fatal(err)
+	}
+	r = (*reqs)[2]
+	if r.Method != "PATCH" || r.Path != "/Col/_apis/wit/workitems/5" || strings.TrimSpace(r.Body) != `[{"op":"add","path":"/fields/System.Description","value":"a&lt;b<br/>c"}]` {
+		t.Errorf("update description: %+v", r)
+	}
+	empty := ""
+	if _, err := c.UpdateWorkItem(context.Background(), 5, domain.WorkItemUpdate{Description: &empty}); err != nil {
+		t.Fatal(err)
+	}
+	if r = (*reqs)[3]; strings.TrimSpace(r.Body) != `[{"op":"add","path":"/fields/System.Description","value":""}]` {
+		t.Errorf("clear description: %+v", r)
+	}
 }
 
 func TestAddComment(t *testing.T) {

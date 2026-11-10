@@ -483,13 +483,16 @@ func textToHTML(s string) string {
 }
 
 func (a *App) wiUpdateCmd() *cobra.Command {
-	var state, title, assigned string
+	var state, title, assigned, desc string
 	cmd := &cobra.Command{
 		Use:   "update <id>",
-		Short: "Update a work item's state, title or assignee",
+		Short: "Update a work item's state, title, assignee or description",
 		Example: `  tfs wi update 1234 --state active
   tfs wi update 1234 --assigned-to @me
-  tfs wi update 1234 --assigned-to ""   # unassign`,
+  tfs wi update 1234 --assigned-to ""   # unassign
+  tfs wi update 1234 -d "Steps to reproduce: …"
+  tfs wi update 1234 -d - < notes.md     # read the description from stdin
+  tfs wi update 1234 -d ""               # clear the description`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -520,8 +523,20 @@ func (a *App) wiUpdateCmd() *cobra.Command {
 				}
 				upd.AssignedTo = &who
 			}
+			if cmd.Flags().Changed("description") {
+				text := desc
+				if text == "-" {
+					b, err := io.ReadAll(os.Stdin)
+					if err != nil {
+						return err
+					}
+					text = string(b)
+				}
+				h := textToHTML(text)
+				upd.Description = &h
+			}
 			if upd.IsEmpty() {
-				return fmt.Errorf("nothing to update: pass --state, --title or --assigned-to")
+				return fmt.Errorf("nothing to update: pass --state, --title, --assigned-to or --description")
 			}
 			w, err := client.UpdateWorkItem(ctx, id, upd)
 			if err != nil {
@@ -537,6 +552,7 @@ func (a *App) wiUpdateCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&state, "state", "s", "", "new state (slugs ok)")
 	cmd.Flags().StringVar(&title, "title", "", "new title")
 	cmd.Flags().StringVarP(&assigned, "assigned-to", "a", "", "new assignee ('@me' for yourself, empty to unassign)")
+	cmd.Flags().StringVarP(&desc, "description", "d", "", "new description (plain text; '-' reads stdin, empty clears)")
 	return cmd
 }
 

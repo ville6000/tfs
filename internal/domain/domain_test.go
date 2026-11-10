@@ -386,3 +386,42 @@ func TestParseWorkItemIDs(t *testing.T) {
 		}
 	}
 }
+
+func TestPullRequestTitleFromBranch(t *testing.T) {
+	cases := []struct{ template, branch, want string }{
+		{"", "feature/42-add-reset-endpoint", "Add reset endpoint"},
+		{"", "feature/42-", ""},
+		{"{type}/{id}", "user-story/7", ""},
+		{"", "bugfix/fix_login-button", "Fix login button"},
+		{"", "users/v/123-ääkköset-ok", "Ääkköset ok"},
+		{"", "hotfix", "Hotfix"},
+		{"{id}/{slug}", "5/x", "X"},
+	}
+	for _, c := range cases {
+		if got := PullRequestTitleFromBranch(c.template, c.branch); got != c.want {
+			t.Errorf("PullRequestTitleFromBranch(%q, %q) = %q, want %q", c.template, c.branch, got, c.want)
+		}
+	}
+}
+
+func TestCommitListMarkdown(t *testing.T) {
+	if got := CommitListMarkdown([]string{"Add x", " ", "Fix y "}); got != "- Add x\n- Fix y" {
+		t.Errorf("got %q", got)
+	}
+	if got := CommitListMarkdown(nil); got != "" {
+		t.Errorf("empty: %q", got)
+	}
+}
+
+func TestJoinDescription(t *testing.T) {
+	for _, c := range [][3]string{
+		{"Body ", "- a", "Body\n\n- a"},
+		{"", "- a", "- a"},
+		{"Body", "", "Body"},
+		{" ", " ", ""},
+	} {
+		if got := JoinDescription(c[0], c[1]); got != c[2] {
+			t.Errorf("JoinDescription(%q, %q) = %q, want %q", c[0], c[1], got, c[2])
+		}
+	}
+}

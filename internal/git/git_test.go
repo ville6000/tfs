@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -126,8 +127,12 @@ func TestPushAndRemoteBranchCommit(t *testing.T) {
 	run(t, clone, "commit", "-q", "--allow-empty", "-m", "Add a thing")
 
 	g := Git{Dir: clone}
-	if s, err := g.LastCommitSubject(ctx); err != nil || s != "Add a thing" {
-		t.Fatalf("subject %q %v", s, err)
+	run(t, clone, "commit", "-q", "--allow-empty", "-m", "Then another")
+	if s, err := g.CommitSubjects(ctx, "origin/main"); err != nil || strings.Join(s, "|") != "Add a thing|Then another" {
+		t.Fatalf("subjects %q %v", s, err)
+	}
+	if s, err := g.CommitSubjects(ctx, "HEAD"); err != nil || s != nil {
+		t.Fatalf("no commits: %q %v", s, err)
 	}
 	if c, err := g.RemoteBranchCommit(ctx, "origin", "feature/a"); err != nil || c != "" {
 		t.Fatalf("before push: %q %v", c, err)

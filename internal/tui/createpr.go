@@ -16,6 +16,7 @@ import (
 // PullRequestPrep is a new pull request for the current branch, prefilled by the CLI.
 type PullRequestPrep struct {
 	Draft      domain.PullRequestDraft
+	Commits    string // the branch's commits not on the target, as a Markdown list
 	Repository string
 	Warning    string // e.g. why the branch's work item is not linked
 }
@@ -32,6 +33,7 @@ type CreatePullRequest struct {
 	target    string
 	workItems string
 	draft     bool
+	commits   bool
 }
 
 // NewCreatePullRequest creates the form, prefilled from prep.
@@ -39,7 +41,7 @@ func NewCreatePullRequest(act *Actions, prep PullRequestPrep) *CreatePullRequest
 	d := prep.Draft
 	c := &CreatePullRequest{prep: prep, title: d.Title, desc: d.Description, target: d.TargetBranch,
 		workItems: domain.FormatWorkItemIDs(d.WorkItemIDs), draft: d.IsDraft}
-	c.form = huh.NewForm(huh.NewGroup(
+	fields := []huh.Field{
 		huh.NewInput().Title("Title").Value(&c.title).Validate(func(s string) error {
 			if strings.TrimSpace(s) == "" {
 				return errors.New("title is required")
@@ -61,14 +63,24 @@ func NewCreatePullRequest(act *Actions, prep PullRequestPrep) *CreatePullRequest
 			_, err := domain.ParseWorkItemIDs(s)
 			return err
 		}),
-		huh.NewConfirm().Title("Draft?").Value(&c.draft),
-	)).WithTheme(huh.ThemeFunc(huh.ThemeCharm)).WithShowHelp(true)
+	}
+	if prep.Commits != "" {
+		n := strings.Count(prep.Commits, "\n") + 1
+		fields = append(fields, huh.NewConfirm().Title("Add the branch's commits to the description?").
+			Description(fmt.Sprintf("%d commit(s) not on %s, as a Markdown list after the description", n, d.TargetBranch)).
+			Value(&c.commits))
+	}
+	fields = append(fields, huh.NewConfirm().Title("Draft?").Value(&c.draft))
+	c.form = huh.NewForm(huh.NewGroup(fields...)).WithTheme(huh.ThemeFunc(huh.ThemeCharm)).WithShowHelp(true)
 	// Read the values when the form completes, not when it is built.
 	c.form.SubmitCmd = func() tea.Msg {
 		ids, _ := domain.ParseWorkItemIDs(c.workItems)
 		draft := d
 		draft.Title = strings.TrimSpace(c.title)
 		draft.Description = strings.TrimSpace(c.desc)
+		if c.commits {
+			draft.Description = domain.JoinDescription(draft.Description, prep.Commits)
+		}
 		draft.TargetBranch = strings.TrimSpace(c.target)
 		draft.WorkItemIDs = ids
 		draft.IsDraft = c.draft

@@ -41,7 +41,7 @@ func TestNewPullRequestFromList(t *testing.T) {
 	var created domain.PullRequestDraft
 	act := &Actions{
 		PreparePR: func(context.Context) (PullRequestPrep, error) {
-			return PullRequestPrep{Repository: "Repo", Warning: "not linking work item #9",
+			return PullRequestPrep{Repository: "Repo", Commits: "- Add x\n- Fix y", Warning: "not linking work item #9",
 				Draft: domain.PullRequestDraft{Project: "P", RepositoryID: "rid", SourceBranch: "feature/9-x",
 					TargetBranch: "main", Title: "Add x", WorkItemIDs: []int{9}}}, nil
 		},
@@ -69,7 +69,7 @@ func TestNewPullRequestFromList(t *testing.T) {
 	form.SetSize(100, 30)
 	run(form.Init())
 	view := ansi.Strip(form.View())
-	for _, want := range []string{"feature/9-x", "Repo", "not linking work item #9", "Add x", "#9"} {
+	for _, want := range []string{"feature/9-x", "Repo", "not linking work item #9", "Add x", "#9", "2 commit(s) not on main"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("missing %q in:\n%s", want, view)
 		}
@@ -97,6 +97,17 @@ func TestNewPullRequestFromList(t *testing.T) {
 		Title: "New title", Description: "Body", IsDraft: true, WorkItemIDs: []int{9, 12}}
 	if !reflect.DeepEqual(created, want) {
 		t.Errorf("draft:\n got %+v\nwant %+v", created, want)
+	}
+	// The commits are added only when asked for, after the description.
+	form.commits = true
+	collect(form.form.SubmitCmd)
+	if created.Description != "Body\n\n- Add x\n- Fix y" {
+		t.Errorf("with commits: %q", created.Description)
+	}
+	form.desc = " "
+	collect(form.form.SubmitCmd)
+	if created.Description != "- Add x\n- Fix y" {
+		t.Errorf("only commits: %q", created.Description)
 	}
 	if status.Err || !strings.Contains(status.Text, "!77") || !announced || !reloaded {
 		t.Errorf("status %+v announced %v reloaded %v", status, announced, reloaded)

@@ -207,7 +207,7 @@ func (a *App) checkoutPullRequest(ctx context.Context, pr domain.PullRequest, wo
 
 func (a *App) prCreateCmd() *cobra.Command {
 	var target, title, description string
-	var printOnly, submit, draft, noPush bool
+	var printOnly, submit, draft, noPush, fillCommits bool
 	var workItems []int
 	cmd := &cobra.Command{
 		Use:   "create",
@@ -221,7 +221,9 @@ The target is the repository's default branch unless --target is given.
 With --submit:
   - the branch is pushed to the remote first when the remote lacks it or is behind (never
     forced; --no-push skips this)
-  - the title defaults to the subject of the latest commit
+  - the title defaults to the branch name without its prefix (feature/42-add-reset → Add reset)
+  - --fill-commits adds the branch's commits that are not on the target branch to the
+    description as a Markdown list (after --description, when both are given)
   - the work item in the branch name (per the branchTemplate config, e.g. feature/{id}-{slug})
     is linked, unless --work-item names the work items to link instead
 
@@ -231,11 +233,12 @@ form and create the pull request.`,
   tfs pr create --target develop
   tfs pr create --submit
   tfs pr create --submit --draft --title "Add reset endpoint" --description "Closes the API part"
+  tfs pr create --submit --fill-commits
   tfs pr create --submit --work-item 123 --work-item 124`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if !submit {
-				for _, f := range []string{"title", "description", "draft", "work-item", "no-push"} {
+				for _, f := range []string{"title", "description", "fill-commits", "draft", "work-item", "no-push"} {
 					if cmd.Flags().Changed(f) {
 						return fmt.Errorf("--%s requires --submit", f)
 					}
@@ -253,7 +256,10 @@ form and create the pull request.`,
 				return err
 			}
 			if submit {
-				return a.submitPullRequest(ctx, client, pc, title, description, draft, workItems, cmd.Flags().Changed("work-item"), noPush)
+				return a.submitPullRequest(ctx, client, pc, submitOptions{
+					title: title, description: description, fillCommits: fillCommits, draft: draft,
+					workItems: workItems, explicitWorkItems: cmd.Flags().Changed("work-item"), noPush: noPush,
+				})
 			}
 			u := domain.PullRequestCreateURL(client.Collection(), pc.ref, pc.source, pc.target, pc.repo.ID)
 			if printOnly {
@@ -268,8 +274,9 @@ form and create the pull request.`,
 	fl.StringVar(&target, "target", "", "target branch (default: the repository's default branch)")
 	fl.BoolVar(&printOnly, "print", false, "print the URL instead of opening it")
 	fl.BoolVar(&submit, "submit", false, "create the pull request on the server instead of opening the browser")
-	fl.StringVar(&title, "title", "", "pull request title (default: the latest commit's subject; with --submit)")
+	fl.StringVar(&title, "title", "", "pull request title (default: from the branch name; with --submit)")
 	fl.StringVar(&description, "description", "", "pull request description (with --submit)")
+	fl.BoolVar(&fillCommits, "fill-commits", false, "add the branch's commits to the description as a Markdown list (with --submit)")
 	fl.BoolVar(&draft, "draft", false, "create the pull request as a draft (with --submit)")
 	fl.IntSliceVar(&workItems, "work-item", nil, "work item to link, repeatable (default: the one in the branch name; with --submit)")
 	fl.BoolVar(&noPush, "no-push", false, "do not push the branch before creating the pull request (with --submit)")
@@ -335,25 +342,39 @@ func (a *App) branchWorkItem(ctx context.Context, client *ado.Client, branch str
 	return id, ""
 }
 
-// pullRequestDraft is a draft for the context: the latest commit's subject as the title and
-// the branch's work item linked.
-func (a *App) pullRequestDraft(ctx context.Context, client *ado.Client, pc prContext) (domain.PullRequestDraft, string, error) {
+// pullRequestDraft is a draft for the context: a title from the branch name and, when
+// linkBranchWorkItem, the branch's work item linked.
+func (a *App) pullRequestDraft(ctx context.Context, client *ado.Client, pc prContext, linkBranchWorkItem bool) (domain.PullRequestDraft, string, error) {
+	cfg, _ := a.config()
 	d := domain.PullRequestDraft{
 		Project:      pc.ref.Project,
 		RepositoryID: pc.repo.ID,
 		SourceBranch: pc.source,
 		TargetBranch: pc.target,
+		Title:        domain.PullRequestTitleFromBranch(cfg.String("branchTemplate"), pc.source),
 	}
-	subject, err := pc.g.LastCommitSubject(ctx)
-	if err != nil {
-		return d, "", err
+	if d.Title == "" {
+		d.Title = pc.source
 	}
-	d.Title = subject
-	id, warning := a.branchWorkItem(ctx, client, pc.source)
-	if id > 0 {
-		d.WorkItemIDs = []int{id}
+	var warning string
+	if linkBranchWorkItem {
+		var id int
+		if id, warning = a.branchWorkItem(ctx, client, pc.source); id > 0 {
+			d.WorkItemIDs = []int{id}
+		}
 	}
 	return d, warning, nil
+}
+
+// branchCommits returns the commits on the source branch that are not on the remote's target
+// branch as a Markdown list, fetching the target first so the comparison is current.
+func (a *App) branchCommits(ctx context.Context, pc prContext) (string, error) {
+	fetchErr := pc.g.Fetch(ctx, pc.remote, pc.target)
+	subjects, err := pc.g.CommitSubjects(ctx, "refs/remotes/"+pc.remote+"/"+pc.target)
+	if err != nil && fetchErr != nil {
+		return "", fetchErr
+	}
+	return domain.CommitListMarkdown(subjects), err
 }
 
 // createPullRequest pushes the source branch when needed (unless noPush) and creates the pull
@@ -371,26 +392,43 @@ func (a *App) createPullRequest(ctx context.Context, client *ado.Client, pc prCo
 	return pr, pushed, err
 }
 
-// submitPullRequest creates the pull request for `pr create --submit`. explicitWorkItems is
-// true when the user named the work items to link with --work-item.
-func (a *App) submitPullRequest(ctx context.Context, client *ado.Client, pc prContext, title, description string, draft bool, workItems []int, explicitWorkItems, noPush bool) error {
-	d, warning, err := a.pullRequestDraft(ctx, client, pc)
+// submitOptions are the `pr create --submit` flags.
+type submitOptions struct {
+	title, description string
+	fillCommits, draft bool
+	workItems          []int
+	explicitWorkItems  bool // --work-item given: link workItems instead of the branch's
+	noPush             bool
+}
+
+// submitPullRequest creates the pull request for `pr create --submit`.
+func (a *App) submitPullRequest(ctx context.Context, client *ado.Client, pc prContext, o submitOptions) error {
+	d, warning, err := a.pullRequestDraft(ctx, client, pc, !o.explicitWorkItems)
 	if err != nil {
 		return err
 	}
-	if strings.TrimSpace(title) != "" {
-		d.Title = title
+	if strings.TrimSpace(o.title) != "" {
+		d.Title = o.title
 	}
-	d.Description, d.IsDraft = description, draft
-	if explicitWorkItems {
-		d.WorkItemIDs = workItems
-	} else if warning != "" {
+	d.Description = strings.TrimSpace(o.description)
+	if o.fillCommits {
+		commits, err := a.branchCommits(ctx, pc)
+		if err != nil {
+			return fmt.Errorf("could not list the branch's commits: %w", err)
+		}
+		d.Description = domain.JoinDescription(d.Description, commits)
+	}
+	d.IsDraft = o.draft
+	if o.explicitWorkItems {
+		d.WorkItemIDs = o.workItems
+	}
+	if warning != "" {
 		fmt.Fprintln(a.errOut, "warning:", warning)
 	}
 	if err := d.Validate(); err != nil {
 		return err
 	}
-	pr, pushed, err := a.createPullRequest(ctx, client, pc, d, noPush)
+	pr, pushed, err := a.createPullRequest(ctx, client, pc, d, o.noPush)
 	if pushed {
 		fmt.Fprintf(a.errOut, "Pushed %s to %s\n", d.SourceBranch, pc.remote)
 	}
@@ -435,11 +473,15 @@ func (a *App) preparePullRequestForTUI(ctx context.Context) (tui.PullRequestPrep
 	if err != nil {
 		return tui.PullRequestPrep{}, err
 	}
-	d, warning, err := a.pullRequestDraft(ctx, a.client, pc)
+	d, warning, err := a.pullRequestDraft(ctx, a.client, pc, true)
 	if err != nil {
 		return tui.PullRequestPrep{}, err
 	}
-	return tui.PullRequestPrep{Draft: d, Repository: pc.repo.Name, Warning: warning}, nil
+	commits, err := a.branchCommits(ctx, pc)
+	if err != nil {
+		warning = strings.TrimPrefix(warning+"; could not list the branch's commits: "+err.Error(), "; ")
+	}
+	return tui.PullRequestPrep{Draft: d, Commits: commits, Repository: pc.repo.Name, Warning: warning}, nil
 }
 
 // createPullRequestForTUI creates the TUI's draft from the current branch, which it re-reads so

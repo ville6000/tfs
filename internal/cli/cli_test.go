@@ -197,6 +197,7 @@ func TestPullRequestCreateFlagsNeedSubmit(t *testing.T) {
 		{"pr", "create", "--draft"},
 		{"pr", "create", "--work-item", "1"},
 		{"pr", "create", "--no-push"},
+		{"pr", "create", "--fill-commits"},
 	} {
 		if _, err := runCLI(t, args...); err == nil || !strings.Contains(err.Error(), "requires --submit") {
 			t.Errorf("%v: %v", args, err)

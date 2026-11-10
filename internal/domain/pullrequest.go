@@ -223,3 +223,24 @@ func ParseWorkItemIDs(s string) ([]int, error) {
 	}
 	return ids, nil
 }
+
+// CommitListMarkdown renders commit subjects as a Markdown bullet list, the way the web UI
+// describes a new pull request.
+func CommitListMarkdown(subjects []string) string {
+	var b strings.Builder
+	for _, s := range subjects {
+		if s = strings.TrimSpace(s); s != "" {
+			fmt.Fprintf(&b, "- %s\n", s)
+		}
+	}
+	return strings.TrimSuffix(b.String(), "\n")
+}
+
+// JoinDescription appends the commit list to a description, separated by a blank line.
+func JoinDescription(description, commits string) string {
+	description, commits = strings.TrimSpace(description), strings.TrimSpace(commits)
+	if description == "" || commits == "" {
+		return description + commits
+	}
+	return description + "\n\n" + commits
+}

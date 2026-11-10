@@ -66,9 +66,14 @@ func (g Git) HeadCommit(ctx context.Context) (string, error) {
 	return g.run(ctx, "rev-parse", "HEAD")
 }
 
-// LastCommitSubject returns the subject line of the commit at HEAD.
-func (g Git) LastCommitSubject(ctx context.Context) (string, error) {
-	return g.run(ctx, "log", "-1", "--format=%s")
+// CommitSubjects returns the subjects of the non-merge commits in HEAD but not in base,
+// oldest first.
+func (g Git) CommitSubjects(ctx context.Context, base string) ([]string, error) {
+	out, err := g.run(ctx, "log", "--reverse", "--no-merges", "--format=%s", base+"..HEAD")
+	if err != nil || out == "" {
+		return nil, err
+	}
+	return strings.Split(out, "\n"), nil
 }
 
 // RemoteBranchCommit asks the remote for the commit its branch points at; it returns "" when

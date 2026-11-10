@@ -175,15 +175,19 @@ tfs pr checkout 4567                         # fetch and switch to the source br
 tfs pr checkout 4567 --worktree              # or a worktree at ../<repo>-pr-4567
 tfs pr create                                # open the create-PR page for the current branch
 tfs pr create --target develop
-tfs pr create --submit                       # create it: push, title from last commit, link work item
+tfs pr create --submit                       # create it: push, title from branch, link work item
 tfs pr create --submit --draft --title "Add reset endpoint" --description "Details"
+tfs pr create --submit --fill-commits        # the branch's commits as the description
 tfs pr create --submit --work-item 123 --work-item 124
 ```
 
 `pr create --submit` pushes the branch first when the remote lacks it or is behind (never forced;
 `--no-push` skips this) and links the work item whose id is in the branch name, per
-`branchTemplate`. In the interactive `pr list`, press `n` to create a pull request for the current
-branch from a form with the same defaults.
+`branchTemplate`. The title comes from the branch name without its prefix
+(`feature/42-add-reset-endpoint` → `Add reset endpoint`). The description is empty unless given;
+`--fill-commits` adds the branch's commits that are not on the target branch as a Markdown list. In the interactive `pr list`, press `n` to create a pull request for the current
+branch from a form with the same defaults; it offers to add the branch's commits to the
+description.
 
 ### Builds
 

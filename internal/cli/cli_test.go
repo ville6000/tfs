@@ -12,12 +12,19 @@ import (
 
 func runCLI(t *testing.T, args ...string) (string, error) {
 	t.Helper()
+	out, _, err := runCLIWith(t, nil, args...)
+	return out, err
+}
+
+// runCLIWith runs the CLI with stdin (os.Stdin when nil) and returns its stdout and stderr.
+func runCLIWith(t *testing.T, stdin io.Reader, args ...string) (string, string, error) {
+	t.Helper()
 	var out, errOut bytes.Buffer
-	app := &App{out: &out, errOut: &errOut}
+	app := &App{in: stdin, out: &out, errOut: &errOut}
 	root := app.rootCmd("test")
 	root.SetArgs(args)
 	err := root.Execute()
-	return out.String(), err
+	return out.String(), errOut.String(), err
 }
 
 func TestWorkItemListAndConfig(t *testing.T) {
@@ -90,6 +97,84 @@ func TestWorkItemListAndConfig(t *testing.T) {
 	}
 	if _, err := runCLI(t, "wi", "show", "--no-tui"); err == nil || !strings.Contains(err.Error(), "id is required") {
 		t.Errorf("show without id: %v", err)
+	}
+}
+
+func TestWorkItemRichText(t *testing.T) {
+	var reqs []string // "METHOD path body" for each request
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		reqs = append(reqs, r.Method+" "+r.URL.Path+" "+strings.TrimSpace(string(b)))
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": 7, "fields": map[string]any{
+			"System.Title": "Hello", "System.WorkItemType": "Bug", "System.TeamProject": "P"}})
+	}))
+	defer srv.Close()
+
+	t.Chdir(t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("TFS_PAT", "x")
+	t.Setenv("TFS_ALLOW_INSECURE", "1")
+	if _, err := runCLI(t, "config", "set", "collectionUrl", srv.URL+"/Col"); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		args        []string
+		stdin, want string
+		warn        bool // the item is a Bug, so setting only its description warns
+	}{
+		{[]string{"-d", "a<b\nc"}, "", `"path":"/fields/System.Description","value":"a&lt;b<br/>c"`, true},
+		{[]string{"-d", "-"}, "from\n  stdin\n", `"path":"/fields/System.Description","value":"from<br/>&nbsp;&nbsp;stdin"}`, true},
+		{[]string{"-d", ""}, "", `"path":"/fields/System.Description","value":""`, false},
+		{[]string{"--acceptance-criteria", "x & y"}, "", `"path":"/fields/Microsoft.VSTS.Common.AcceptanceCriteria","value":"x &amp; y"`, false},
+		{[]string{"--acceptance-criteria", ""}, "", `"path":"/fields/Microsoft.VSTS.Common.AcceptanceCriteria","value":""`, false},
+		{[]string{"--repro-steps", "-"}, "1. open\r\n", `"path":"/fields/Microsoft.VSTS.TCM.ReproSteps","value":"1. open"}`, false},
+		{[]string{"-d", "x", "--repro-steps", "y"}, "", `"path":"/fields/Microsoft.VSTS.TCM.ReproSteps","value":"y"`, false},
+	} {
+		reqs = nil
+		_, errOut, err := runCLIWith(t, strings.NewReader(tc.stdin), append([]string{"wi", "update", "7"}, tc.args...)...)
+		if err != nil {
+			t.Fatalf("%q: %v", tc.args, err)
+		}
+		if len(reqs) != 1 || !strings.HasPrefix(reqs[0], "PATCH ") || !strings.Contains(reqs[0], tc.want) {
+			t.Errorf("%q: %v", tc.args, reqs)
+		}
+		if warned := strings.Contains(errOut, "--repro-steps"); warned != tc.warn {
+			t.Errorf("%q: warning %v, want %v: %q", tc.args, warned, tc.warn, errOut)
+		}
+	}
+
+	// Bad stdin input fails before any request, even one that resolving @me would send.
+	for _, tc := range []struct {
+		args       []string
+		stdin, err string
+	}{
+		{[]string{"wi", "update", "7", "-d", "-"}, "\n", "no description on stdin"},
+		{[]string{"wi", "update", "7", "--acceptance-criteria", "-"}, "", "no acceptance criteria on stdin"},
+		{[]string{"wi", "update", "7", "-a", "@me", "-d", "-", "--acceptance-criteria", "-"}, "x", "only one of"},
+		{[]string{"wi", "create", "--title", "X", "-d", "-", "--repro-steps", "-"}, "x", "only one of"},
+		{[]string{"wi", "comment", "7", "-"}, " \n", "no comment on stdin"},
+	} {
+		reqs = nil
+		_, _, err := runCLIWith(t, strings.NewReader(tc.stdin), tc.args...)
+		if err == nil || !strings.Contains(err.Error(), tc.err) || len(reqs) != 0 {
+			t.Errorf("%q: %v %v", tc.args, err, reqs)
+		}
+	}
+
+	reqs = nil
+	_, _, err := runCLIWith(t, strings.NewReader("Users can sign in\n"),
+		"wi", "create", "-p", "P", "-t", "user-story", "--title", "SSO", "--acceptance-criteria", "-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reqs) != 1 || !strings.HasPrefix(reqs[0], "POST ") ||
+		!strings.Contains(reqs[0], `"path":"/fields/Microsoft.VSTS.Common.AcceptanceCriteria","value":"Users can sign in"}`) {
+		t.Errorf("create reading stdin: %v", reqs)
 	}
 }
 

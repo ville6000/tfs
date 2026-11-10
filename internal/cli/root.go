@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -133,6 +134,37 @@ func (a *App) resolveProject(ctx context.Context) (string, error) {
 
 func (a *App) interactive() bool {
 	return !a.noTUI && !a.jsonOut && term.IsTerminal(os.Stdin.Fd()) && term.IsTerminal(os.Stdout.Fd())
+}
+
+// stdin is where commands read piped input, such as a '-' argument or a token.
+func (a *App) stdin() io.Reader {
+	if a.in == nil {
+		return os.Stdin
+	}
+	return a.in
+}
+
+// readStdin reads the text for what (such as "description") from stdin, without its final line
+// breaks. Empty input is an error, so an empty or closed stdin never clears a field or posts an
+// empty comment by accident. On a terminal it first says how to end the input.
+func (a *App) readStdin(what string) (string, error) {
+	in := a.stdin()
+	if f, ok := in.(*os.File); ok && term.IsTerminal(f.Fd()) {
+		eof := "Ctrl-D"
+		if runtime.GOOS == "windows" {
+			eof = "Ctrl-Z and Enter"
+		}
+		fmt.Fprintf(a.errOut, "Type the %s, then press %s on an empty line:\n", what, eof)
+	}
+	b, err := io.ReadAll(in)
+	if err != nil {
+		return "", fmt.Errorf("could not read the %s from stdin: %w", what, err)
+	}
+	text := strings.TrimRight(string(b), "\r\n")
+	if strings.TrimSpace(text) == "" {
+		return "", fmt.Errorf("no %s on stdin", what)
+	}
+	return text, nil
 }
 
 func (a *App) width() int {

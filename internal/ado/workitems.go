@@ -30,6 +30,7 @@ const (
 	fieldTags      = "System.Tags"
 	fieldDesc      = "System.Description"
 	fieldAccept    = "Microsoft.VSTS.Common.AcceptanceCriteria"
+	fieldRepro     = "Microsoft.VSTS.TCM.ReproSteps"
 	relParent      = "System.LinkTypes.Hierarchy-Reverse"
 	fieldStackRank = "Microsoft.VSTS.Common.StackRank"
 	fieldPriority  = "Microsoft.VSTS.Common.BacklogPriority"
@@ -336,6 +337,7 @@ func (c *Client) GetWorkItemDetail(ctx context.Context, id int) (domain.WorkItem
 		WorkItem:           c.mapWorkItem(r),
 		Description:        r.str(fieldDesc),
 		AcceptanceCriteria: r.str(fieldAccept),
+		ReproSteps:         r.str(fieldRepro),
 	}
 	if d.Project != "" {
 		comments, err := c.Comments(ctx, d.Project, id)
@@ -375,6 +377,12 @@ func (c *Client) CreateWorkItem(ctx context.Context, d domain.WorkItemDraft) (do
 	if d.Description != "" {
 		ops = append(ops, patchOp{"add", "/fields/" + fieldDesc, d.Description})
 	}
+	if d.AcceptanceCriteria != "" {
+		ops = append(ops, patchOp{"add", "/fields/" + fieldAccept, d.AcceptanceCriteria})
+	}
+	if d.ReproSteps != "" {
+		ops = append(ops, patchOp{"add", "/fields/" + fieldRepro, d.ReproSteps})
+	}
 	if d.AssignedTo != "" {
 		ops = append(ops, patchOp{"add", "/fields/" + fieldAssigned, d.AssignedTo})
 	}
@@ -395,7 +403,8 @@ func (c *Client) CreateWorkItem(ctx context.Context, d domain.WorkItemDraft) (do
 	return c.mapWorkItem(&r), nil
 }
 
-// UpdateWorkItem changes state, title and/or assignee.
+// UpdateWorkItem changes state, title, assignee, description, acceptance criteria and/or repro
+// steps.
 func (c *Client) UpdateWorkItem(ctx context.Context, id int, upd domain.WorkItemUpdate) (domain.WorkItem, error) {
 	if upd.IsEmpty() {
 		return domain.WorkItem{}, errors.New("nothing to update")
@@ -409,6 +418,15 @@ func (c *Client) UpdateWorkItem(ctx context.Context, id int, upd domain.WorkItem
 	}
 	if upd.AssignedTo != nil {
 		ops = append(ops, patchOp{"add", "/fields/" + fieldAssigned, *upd.AssignedTo})
+	}
+	if upd.Description != nil {
+		ops = append(ops, patchOp{"add", "/fields/" + fieldDesc, *upd.Description})
+	}
+	if upd.AcceptanceCriteria != nil {
+		ops = append(ops, patchOp{"add", "/fields/" + fieldAccept, *upd.AcceptanceCriteria})
+	}
+	if upd.ReproSteps != nil {
+		ops = append(ops, patchOp{"add", "/fields/" + fieldRepro, *upd.ReproSteps})
 	}
 	var r workItemResponse
 	if err := c.do(ctx, http.MethodPatch, c.url(fmt.Sprintf("/_apis/wit/workitems/%d", id), nil), jsonPatch, ops, &r); err != nil {
@@ -454,10 +472,17 @@ func (c *Client) Comments(ctx context.Context, project string, id int) ([]domain
 	return out, nil
 }
 
-// EncodeComment converts plain text into the HTML the comments API stores.
+// EncodeComment converts plain text into the HTML that comments and rich-text fields store. It
+// escapes markup, turns line breaks into <br/> and keeps each line's indentation, which HTML
+// would otherwise collapse.
 func EncodeComment(text string) string {
-	s := html.EscapeString(strings.ReplaceAll(text, "\r\n", "\n"))
-	return strings.ReplaceAll(s, "\n", "<br/>")
+	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	for i, l := range lines {
+		rest := strings.TrimLeft(l, " \t")
+		indent := strings.ReplaceAll(l[:len(l)-len(rest)], "\t", "    ")
+		lines[i] = strings.Repeat("&nbsp;", len(indent)) + html.EscapeString(rest)
+	}
+	return strings.Join(lines, "<br/>")
 }
 
 // AddComment posts a plain-text comment.

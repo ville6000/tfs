@@ -78,12 +78,14 @@ func shortenHome(p string) string {
 
 // CreateValues are the values collected by the interactive create form.
 type CreateValues struct {
-	Type        string
-	Title       string
-	Description string
-	AssignToMe  bool
-	Tags        string
-	Parent      string
+	Type               string
+	Title              string
+	Description        string
+	AcceptanceCriteria string
+	ReproSteps         string
+	AssignToMe         bool
+	Tags               string
+	Parent             string
 }
 
 // RunCreateForm edits v in place. types are offered as choices when non-empty.
@@ -103,6 +105,10 @@ func RunCreateForm(v *CreateValues, types []string) error {
 			return nil
 		}),
 		huh.NewText().Title("Description").Description("Plain text (optional)").Value(&v.Description),
+		huh.NewText().Title("Acceptance criteria").
+			Description("Plain text (optional; only types that have it, such as User Story or Product Backlog Item)").
+			Lines(3).Value(&v.AcceptanceCriteria),
+		huh.NewText().Title("Repro steps").Description("Plain text (optional; Bugs)").Lines(3).Value(&v.ReproSteps),
 		huh.NewInput().Title("Parent id").Description("Optional").Value(&v.Parent).Validate(func(s string) error {
 			if strings.TrimSpace(s) == "" {
 				return nil

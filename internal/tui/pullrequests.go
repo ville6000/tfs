@@ -17,6 +17,7 @@ import (
 var (
 	keyCheckout   = key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "checkout"))
 	keyPRWorktree = key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "worktree"))
+	keyNewPR      = key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new PR from current branch"))
 )
 
 type pullRequestsLoadedMsg struct {
@@ -72,7 +73,7 @@ func (l *PullRequestList) Help() []key.Binding {
 	if l.Picked != nil {
 		return append([]key.Binding{keyPick}, l.table.Help()[:3]...)
 	}
-	return append([]key.Binding{keyEnter, keyOpen, keyCheckout, keyPRWorktree, keyCopy, keyRefresh}, l.table.Help()...)
+	return append([]key.Binding{keyEnter, keyOpen, keyCheckout, keyPRWorktree, keyNewPR, keyCopy, keyRefresh}, l.table.Help()...)
 }
 
 func (l *PullRequestList) Update(msg tea.Msg) (Screen, tea.Cmd) {
@@ -102,6 +103,11 @@ func (l *PullRequestList) Update(msg tea.Msg) (Screen, tea.Cmd) {
 		}
 		l.table.SetRows(rows)
 		return l, nil
+	case pullRequestCreatedMsg:
+		if l.Picked != nil {
+			return l, nil
+		}
+		return l, l.reload()
 	case tea.KeyPressMsg:
 		if l.table.Filtering() {
 			break
@@ -121,6 +127,8 @@ func (l *PullRequestList) Update(msg tea.Msg) (Screen, tea.Cmd) {
 		switch {
 		case key.Matches(msg, keyRefresh):
 			return l, l.reload()
+		case key.Matches(msg, keyNewPR):
+			return l, l.act.newPR()
 		case !ok:
 		case key.Matches(msg, keyEnter):
 			return l, Push(NewPullRequestDetail(l.act, pr))

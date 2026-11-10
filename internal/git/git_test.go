@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -105,5 +106,67 @@ func TestBranchFromDefault(t *testing.T) {
 	run(t, clone, "remote", "set-head", "origin", "--delete")
 	if _, err := g.DefaultBranch(ctx, "origin"); err == nil {
 		t.Error("trunk is not a well-known name; expected an error asking for --base")
+	}
+}
+
+func TestPush(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	ctx := context.Background()
+	tmp := t.TempDir()
+	origin, clone, other := filepath.Join(tmp, "origin"), filepath.Join(tmp, "clone"), filepath.Join(tmp, "other")
+	if err := os.MkdirAll(origin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	run(t, origin, "init", "-q", "--bare", "-b", "main")
+	run(t, tmp, "clone", "-q", origin, clone)
+	run(t, clone, "commit", "-q", "--allow-empty", "-m", "init")
+	run(t, clone, "push", "-q", "origin", "main")
+	run(t, clone, "switch", "-q", "-c", "feature/a")
+	run(t, clone, "config", "log.showSignature", "true")
+	run(t, clone, "commit", "-q", "--allow-empty", "-m", "Add a thing")
+
+	g := Git{Dir: clone, NoPrompt: true}
+	run(t, clone, "commit", "-q", "--allow-empty", "-m", "Then another")
+	if s, err := g.CommitSubjects(ctx, "origin/main"); err != nil || strings.Join(s, "|") != "Add a thing|Then another" {
+		t.Fatalf("subjects %q %v", s, err)
+	}
+	if s, err := g.CommitSubjects(ctx, "HEAD"); err != nil || s != nil {
+		t.Fatalf("no commits: %q %v", s, err)
+	}
+
+	push := func(want PushResult) {
+		t.Helper()
+		if got, err := g.Push(ctx, "origin", "feature/a"); err != nil || got != want {
+			t.Fatalf("push = %v, %v; want %v", got, err, want)
+		}
+	}
+	push(PushCreated)
+	if up, err := g.run(ctx, "rev-parse", "--abbrev-ref", "@{upstream}"); err != nil || up != "origin/feature/a" {
+		t.Errorf("upstream %q %v", up, err)
+	}
+	push(PushUpToDate)
+	run(t, clone, "commit", "-q", "--allow-empty", "-m", "More")
+	push(PushUpdated)
+
+	// Someone else pushes to the branch: the remote is ahead, then the branches have diverged.
+	run(t, tmp, "clone", "-q", "-b", "feature/a", origin, other)
+	run(t, other, "commit", "-q", "--allow-empty", "-m", "Theirs")
+	run(t, other, "push", "-q", "origin", "feature/a")
+	push(PushRejected)
+	run(t, clone, "commit", "-q", "--allow-empty", "-m", "Mine")
+	push(PushRejected)
+	run(t, clone, "fetch", "-q", "origin")
+	push(PushRejected) // non-fast-forward rather than fetch first, now the clone knows the commit
+
+	// A refusal by the server is an error, not a rejection to skip past.
+	hook := filepath.Join(origin, "hooks", "pre-receive")
+	if err := os.WriteFile(hook, []byte("#!/bin/sh\necho no pushes today >&2\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	run(t, clone, "switch", "-q", "-c", "feature/b")
+	if _, err := g.Push(ctx, "origin", "feature/b"); err == nil || !strings.Contains(err.Error(), "no pushes today") {
+		t.Errorf("hook refusal: %v", err)
 	}
 }

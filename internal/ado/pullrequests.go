@@ -135,3 +135,36 @@ func (c *Client) GetRepository(ctx context.Context, project, name string) (Repos
 	}
 	return Repository{ID: r.ID, Name: r.Name, DefaultBranch: domain.TrimRef(r.DefaultBranch)}, nil
 }
+
+// CreatePullRequest creates a pull request, linking the draft's work items.
+func (c *Client) CreatePullRequest(ctx context.Context, d domain.PullRequestDraft) (domain.PullRequest, error) {
+	if err := d.Validate(); err != nil {
+		return domain.PullRequest{}, err
+	}
+	type workItemRef struct {
+		ID string `json:"id"`
+	}
+	body := struct {
+		SourceRefName string        `json:"sourceRefName"`
+		TargetRefName string        `json:"targetRefName"`
+		Title         string        `json:"title"`
+		Description   string        `json:"description,omitempty"`
+		IsDraft       bool          `json:"isDraft,omitempty"`
+		WorkItemRefs  []workItemRef `json:"workItemRefs,omitempty"`
+	}{
+		SourceRefName: "refs/heads/" + domain.TrimRef(strings.TrimSpace(d.SourceBranch)),
+		TargetRefName: "refs/heads/" + domain.TrimRef(strings.TrimSpace(d.TargetBranch)),
+		Title:         strings.TrimSpace(d.Title),
+		Description:   d.Description,
+		IsDraft:       d.IsDraft,
+	}
+	for _, id := range d.WorkItemIDs {
+		body.WorkItemRefs = append(body.WorkItemRefs, workItemRef{ID: strconv.Itoa(id)})
+	}
+	var r pullRequestResponse
+	u := c.url("/"+seg(d.Project)+"/_apis/git/repositories/"+seg(d.RepositoryID)+"/pullrequests", nil)
+	if err := c.postJSON(ctx, u, body, &r); err != nil {
+		return domain.PullRequest{}, err
+	}
+	return c.mapPullRequest(r, d.Project), nil
+}

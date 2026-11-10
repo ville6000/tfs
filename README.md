@@ -122,6 +122,7 @@ tfs wi show 1234                             # details; omit the id to pick from
 tfs wi open 1234
 tfs wi create -t bug --title "Login fails" --parent 1200 -a @me
 tfs wi create --parent 1200 --title "Sign in with SSO"   # type follows the parent: Epic → Feature → Story → Task
+tfs wi create -t user-story --title "SSO" --acceptance-criteria "Users can sign in with SSO"
 tfs wi create                                # interactive form
 tfs wi update 1234 --state active --assigned-to @me
 tfs wi update 1234 -d "Steps to reproduce: …"  # replace the description (plain text; -d "" clears)

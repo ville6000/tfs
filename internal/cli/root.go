@@ -55,6 +55,10 @@ func (a *App) rootCmd(version string) *cobra.Command {
 		Short: "A terminal client for Azure DevOps Server work items, boards and pull requests",
 		Long: `tfs is a terminal client for on-premises Azure DevOps Server (formerly TFS).
 
+On its own in a terminal, tfs opens the home screen: pull requests waiting for your review
+(including those assigned to your groups), release approvals, and your own pull requests,
+builds and work items.
+
 Browse, create and update work items, view the backlog hierarchy, list and check out pull
 requests, and create git worktrees straight from a work item. Lists, trees and detail views
 are interactive when run in a terminal; pass --no-tui or --json for scripting.
@@ -65,11 +69,20 @@ Run 'tfs config wizard' to get started.`,
 		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		// On its own, tfs opens the home screen once a server is configured: in a terminal, or
+		// as static output when --no-tui or --json asks for it. Otherwise it shows this help.
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if (a.interactive() || a.noTUI || a.jsonOut) && a.configured() {
+				return a.home(cmd.Context())
+			}
+			return cmd.Help()
+		},
 	}
+	root.SetOut(a.out)
 	root.PersistentFlags().BoolVar(&a.noTUI, "no-tui", false, "print static output instead of the interactive view")
 	root.PersistentFlags().BoolVar(&a.jsonOut, "json", false, "print JSON (implies --no-tui)")
 	root.PersistentFlags().StringVarP(&a.project, "project", "p", "", "team project (default: defaultProject config, then the git remote)")
-	root.AddCommand(a.workItemCmd(), a.pullRequestCmd(), a.buildCmd(), a.releaseCmd(), a.boardCmd(), a.configCmd(), a.authCmd())
+	root.AddCommand(a.homeCmd(), a.workItemCmd(), a.pullRequestCmd(), a.buildCmd(), a.releaseCmd(), a.boardCmd(), a.configCmd(), a.authCmd())
 	return root
 }
 

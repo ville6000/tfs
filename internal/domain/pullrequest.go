@@ -43,6 +43,10 @@ type Reviewer struct {
 	Name       string `json:"name"`
 	Vote       int    `json:"vote"`
 	IsRequired bool   `json:"isRequired,omitempty"`
+	// ID is the reviewer's identity id; IsGroup marks a group or team.
+	ID          string `json:"-"`
+	IsGroup     bool   `json:"-"`
+	HasDeclined bool   `json:"-"`
 }
 
 // ComputeApproval derives the overall approval from reviewer votes.
@@ -100,6 +104,7 @@ type PullRequest struct {
 	Title        string     `json:"title"`
 	Description  string     `json:"description,omitempty"`
 	CreatedBy    string     `json:"createdBy"`
+	CreatedByID  string     `json:"-"`
 	Created      time.Time  `json:"created"`
 	SourceBranch string     `json:"sourceBranch"`
 	TargetBranch string     `json:"targetBranch"`

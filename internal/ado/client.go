@@ -30,6 +30,12 @@ type Client struct {
 	meOnce sync.Once
 	me     me
 	meErr  error
+
+	// Group memberships of the user, read once: the descriptors of the groups they belong to,
+	// and for identities looked up so far, whether they are one of those groups (by id).
+	groupsMu sync.Mutex
+	memberOf map[string]bool
+	inGroup  map[string]bool
 }
 
 // New creates a client. collection is the collection URL, e.g. https://host/DefaultCollection.

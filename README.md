@@ -19,6 +19,9 @@ enter details • o open in browser • s set state • a assign to me • w wor
 
 ## Features
 
+- **Home screen** — `tfs` on its own shows what waits for you: pull requests to review, including
+  those assigned to a group or team you belong to, and release approvals; and how your own pull
+  requests, builds and work items are doing.
 - **Work items** — list, filter, show (description, repro steps, acceptance criteria, comments
   rendered as Markdown), create, update state/title/assignee/description/acceptance criteria/repro
   steps, comment, open in the browser.
@@ -62,6 +65,7 @@ Or download a binary for macOS, Linux or Windows from the
 ```bash
 tfs config wizard                 # collection URL, default project, …
 tfs auth login                    # store the personal access token in the macOS Keychain
+tfs                               # home screen: what waits for you
 tfs wi list                       # interactive list of open work items
 ```
 
@@ -94,6 +98,7 @@ defined** scopes and grant only what you use:
 | Scope                      | Needed for                                                |
 |----------------------------|-----------------------------------------------------------|
 | Work Items — Read & write  | `wi …`, `board open` (Read is enough for list/show/tree)  |
+| Identity — Read            | finding pull requests assigned to your groups on the home screen |
 | Code — Read                | `pr …`                                                    |
 | Code — Read & write        | `pr create --submit`, `n` in the PR list                  |
 | Code — Read & write, Work Items — Read | linking the branch's work item to a new PR (`pr create --submit`, `n`) |
@@ -112,6 +117,32 @@ local test server set `TFS_ALLOW_INSECURE=1`.
 ## Commands
 
 Run `tfs <command> --help` for every flag.
+
+### Home
+
+```bash
+tfs                                          # in a terminal, once a server is configured
+tfs home                                     # the same, anywhere
+tfs home --no-tui                            # static output; --json for scripts
+```
+
+The home screen lists, for the project:
+
+- **Waiting for your review** — active pull requests where you, or a group or team you belong to
+  (also through other groups), are a reviewer that has not voted yet. Drafts and your own pull
+  requests are left out, and so is a group request once a teammate has voted for the group. The
+  `FOR` column says whether the review was asked of you or of one of your groups.
+- **Release approvals** waiting for you or your groups (limited by `releasePipelines`).
+- **Your pull requests** with their approval status.
+- **Your builds** — your newest build of each pipeline and branch from the last 7 days. While one
+  is running the section refreshes every 10 seconds.
+- **Your work items** — open work items assigned to you.
+
+Move between sections with `tab` / `shift+tab`; the keys of the list each row comes from work
+there too, e.g. `c` checks out a pull request, `s` sets a work item's state and `a` approves a
+release. Finding reviews requested from your groups reads your group memberships, which needs
+the Identity "Read" scope; without it, the screen says so and shows the reviews requested from
+you only. A section the token lacks the scope for shows the error and the rest still load.
 
 ### Work items
 
@@ -294,7 +325,8 @@ Lists, the tree, and detail views are interactive when stdin and stdout are a te
 | `ctrl+s` / `esc` | confirm / cancel (approve and reject confirmations) |
 | `P`            | my pending approvals (release dashboard) |
 | `f`            | next failed task (build)                |
-| `tab`          | switch between stages and work items (release) |
+| `tab`          | switch between stages and work items (release); next section (home) |
+| `shift+tab`    | previous section (home)                 |
 | `←`/`→`, `space`, `e`, `z` | collapse, expand, toggle, expand all, collapse all (tree) |
 | `r`            | refresh                                 |
 | `esc`          | back                                    |

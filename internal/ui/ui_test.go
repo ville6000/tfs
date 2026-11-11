@@ -56,3 +56,26 @@ func TestFormatDuration(t *testing.T) {
 		}
 	}
 }
+
+func TestFormatAge(t *testing.T) {
+	now := time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
+	for d, want := range map[time.Duration]string{30 * time.Second: "now", 5 * time.Minute: "5m", 3 * time.Hour: "3h", 50 * time.Hour: "2d"} {
+		if got := FormatAge(now.Add(-d), now); got != want {
+			t.Errorf("%v: %q, want %q", d, got, want)
+		}
+	}
+	if got := FormatAge(time.Time{}, now); got != "" {
+		t.Errorf("zero time: %q", got)
+	}
+}
+
+func TestGroupName(t *testing.T) {
+	for in, want := range map[string]string{
+		`[Portal]\Web Team`: "Web Team", `[DefaultCollection]\Reviewers`: "Reviewers",
+		"Web Team": "Web Team", `CONTOSO\devs`: `CONTOSO\devs`, `[Portal]\`: `[Portal]\`,
+	} {
+		if got := GroupName(in); got != want {
+			t.Errorf("%q: %q, want %q", in, got, want)
+		}
+	}
+}

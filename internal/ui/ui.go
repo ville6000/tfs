@@ -258,6 +258,23 @@ func FormatTime(t time.Time) string {
 	return t.Local().Format("2006-01-02 15:04")
 }
 
+// FormatAge renders how long ago t was compactly: 5m, 3h, 2d; "" for the zero time.
+func FormatAge(t, now time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	switch d := now.Sub(t); {
+	case d < time.Minute:
+		return "now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd", int(d.Hours()/24))
+	}
+}
+
 // Println writes s to w, downsampling colors to what w supports (none when piped).
 func Println(w io.Writer, s string) { lipgloss.Fprintln(w, s) }
 
@@ -432,4 +449,34 @@ func FormatLog(text string, styled bool) string {
 		out = append(out, l)
 	}
 	return strings.Join(out, "\n")
+}
+
+// HomeSection names a section of the home screen and says what it shows when empty.
+type HomeSection struct{ Title, None string }
+
+// The home screen's sections, shared by the interactive view and the static output.
+var (
+	HomeReviews      = HomeSection{"Waiting for your review", "nothing waiting"}
+	HomeApprovals    = HomeSection{"Release approvals", "nothing waiting"}
+	HomePullRequests = HomeSection{"Your pull requests", "none active"}
+	HomeBuilds       = HomeSection{"Your builds", fmt.Sprintf("none in the last %d days", domain.HomeBuildDays)}
+	HomeWorkItems    = HomeSection{"Your work items", "none open"}
+)
+
+// ReviewVia renders whom a review was requested from: the user ("you") or one of their groups.
+func ReviewVia(r domain.ReviewRequest) string {
+	if r.Via == "" {
+		return Bold.Render("you")
+	}
+	return GroupName(r.Via)
+}
+
+// GroupName drops the "[Project]\" scope the server puts before the names of groups and teams.
+func GroupName(name string) string {
+	if strings.HasPrefix(name, "[") {
+		if i := strings.Index(name, "]\\"); i > 0 && i+2 < len(name) {
+			return name[i+2:]
+		}
+	}
+	return name
 }

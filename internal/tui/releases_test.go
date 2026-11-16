@@ -1,8 +1,15 @@
 package tui
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"path"
 	"reflect"
+	"slices"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"charm.land/bubbles/v2/key"
@@ -10,6 +17,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/ville6000/tfs/internal/ado"
 	"github.com/ville6000/tfs/internal/domain"
 )
 
@@ -251,6 +259,119 @@ func TestPromoteKey(t *testing.T) {
 	for _, want := range []string{"Also rejects the older releases waiting for Prod: Release-9, Release-10", "reject 2 older"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("missing %q in:\n%s", want, view)
+		}
+	}
+}
+
+// approvalServer answers approval PATCHes, recording each as "<id> <status> <comment>", and
+// refuses those in fail with the given HTTP status.
+func approvalServer(t *testing.T, fail map[int]int) (*Releases, func() []string) {
+	t.Helper()
+	var mu sync.Mutex
+	var calls []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method != http.MethodPatch || !strings.Contains(r.URL.Path, "/P/_apis/release/approvals/") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		id, _ := strconv.Atoi(path.Base(r.URL.Path))
+		var body struct{ Status, Comments string }
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		mu.Lock()
+		calls = append(calls, strings.TrimSpace(strconv.Itoa(id)+" "+body.Status+" "+body.Comments))
+		mu.Unlock()
+		if code := fail[id]; code != 0 {
+			w.WriteHeader(code)
+			_ = json.NewEncoder(w).Encode(map[string]string{"message": "refused"})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": id})
+	}))
+	t.Cleanup(srv.Close)
+	return &Releases{Client: ado.New(srv.URL+"/Col", "7.0", "x"), Project: "P"}, func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return slices.Clone(calls)
+	}
+}
+
+// confirmWith answers the confirmation screen cmd pushes with comment and returns the status the
+// action ends with.
+func confirmWith(t *testing.T, cmd tea.Cmd, comment string) StatusMsg {
+	t.Helper()
+	push, ok := run(cmd).(PushMsg)
+	if !ok {
+		t.Fatalf("expected a confirmation screen, got %#v", run(cmd))
+	}
+	push.Screen.SetSize(100, 20)
+	run(push.Screen.Init())
+	for _, r := range comment {
+		push.Screen.Update(press(string(r)))
+	}
+	_, cmd = push.Screen.Update(press("ctrl+s"))
+	for _, msg := range collect(cmd) {
+		if s, ok := msg.(StatusMsg); ok {
+			return s
+		}
+	}
+	t.Fatal("the action ended without a status")
+	return StatusMsg{}
+}
+
+// Confirming a promotion approves the release first, then rejects the older ones, and says what
+// it did; a failed rejection still leaves the approval, a failed approval rejects nothing.
+func TestPromoteApplies(t *testing.T) {
+	a := domain.ReleaseApproval{ID: 900, ReleaseID: 11, Pipeline: "frontend", Release: "Release-11", Stage: "Prod"}
+	older := []domain.ReleaseApproval{{ID: 801, Release: "Release-9"}, {ID: 802, Release: "Release-10"}}
+	for _, c := range []struct {
+		name    string
+		fail    map[int]int
+		calls   []string
+		status  string
+		isError bool
+	}{
+		{name: "all", calls: []string{"900 approved hotfix", "801 rejected Superseded by Release-11: hotfix", "802 rejected Superseded by Release-11: hotfix"},
+			status: "approved Release-11 for Prod, rejected 2 older"},
+		{name: "a rejection fails", fail: map[int]int{801: http.StatusInternalServerError},
+			calls:  []string{"900 approved hotfix", "801 rejected Superseded by Release-11: hotfix", "802 rejected Superseded by Release-11: hotfix"},
+			status: "approved Release-11 for Prod; could not reject Release-9", isError: true},
+		{name: "the approval fails", fail: map[int]int{900: http.StatusForbidden},
+			calls: []string{"900 approved hotfix"}, status: "not allowed to approve this stage", isError: true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r, calls := approvalServer(t, c.fail)
+			s := confirmWith(t, r.promote(a, older), "hotfix")
+			if !strings.Contains(s.Text, c.status) || s.Err != c.isError {
+				t.Errorf("status %+v, want %q (error %v)", s, c.status, c.isError)
+			}
+			if got := calls(); !reflect.DeepEqual(got, c.calls) {
+				t.Errorf("approvals set:\n got %q\nwant %q", got, c.calls)
+			}
+		})
+	}
+
+	// Escaping the confirmation changes nothing.
+	r, calls := approvalServer(t, nil)
+	push := run(r.promote(a, older)).(PushMsg)
+	push.Screen.SetSize(100, 20)
+	_, cmd := push.Screen.Update(press("esc"))
+	runAll(cmd)
+	if got := calls(); len(got) != 0 {
+		t.Errorf("esc set approvals: %q", got)
+	}
+}
+
+func TestDecideApplies(t *testing.T) {
+	a := domain.ReleaseApproval{ID: 900, ReleaseID: 11, Pipeline: "frontend", Release: "Release-11", Stage: "Prod"}
+	for approve, want := range map[bool]string{true: "900 approved ok", false: "900 rejected ok"} {
+		r, calls := approvalServer(t, nil)
+		s := confirmWith(t, r.decide(a, approve), "ok")
+		if done := map[bool]string{true: "approved", false: "rejected"}[approve] + " Release-11 for Prod"; s.Text != done || s.Err {
+			t.Errorf("approve %v: status %+v", approve, s)
+		}
+		if got := calls(); !reflect.DeepEqual(got, []string{want}) {
+			t.Errorf("approve %v: %q", approve, got)
 		}
 	}
 }

@@ -20,9 +20,10 @@ func (a *App) pullRequestCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "pr",
 		Aliases: []string{"pullrequest", "pullrequests"},
-		Short:   "Pull requests: list, show, open, checkout, create",
+		Short:   "Pull requests: list, show, open, checkout, create, approve, autocomplete",
 	}
-	cmd.AddCommand(a.prListCmd(), a.prShowCmd(), a.prOpenCmd(), a.prCheckoutCmd(), a.prCreateCmd())
+	cmd.AddCommand(a.prListCmd(), a.prShowCmd(), a.prOpenCmd(), a.prCheckoutCmd(), a.prCreateCmd(),
+		a.prApproveCmd(), a.prAutoCompleteCmd())
 	return cmd
 }
 

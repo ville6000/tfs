@@ -10,9 +10,9 @@ import (
 	"github.com/ville6000/tfs/internal/ui"
 )
 
-// Confirm asks before an action that changes something on the server, with an optional comment.
-// It defaults to "no", so pressing enter through it does nothing; ctrl+s confirms from any field
-// and esc cancels.
+// Confirm asks before an action that changes something on the server, with an optional comment
+// unless made by NewQuestion. It defaults to "no", so pressing enter through it does nothing;
+// ctrl+s confirms from any field and esc cancels.
 type Confirm struct {
 	title  string
 	form   *huh.Form
@@ -25,12 +25,23 @@ type Confirm struct {
 
 // NewConfirm creates a confirmation screen; run is called with the comment when confirmed.
 func NewConfirm(title, question, detail, yes string, run func(comment string) tea.Cmd) *Confirm {
+	return newConfirm(title, question, detail, yes, true, run)
+}
+
+// NewQuestion creates a confirmation screen without a comment; run is called when confirmed.
+func NewQuestion(title, question, detail, yes string, run func() tea.Cmd) *Confirm {
+	return newConfirm(title, question, detail, yes, false, func(string) tea.Cmd { return run() })
+}
+
+func newConfirm(title, question, detail, yes string, withComment bool, run func(comment string) tea.Cmd) *Confirm {
 	c := &Confirm{title: title, detail: detail, run: run,
 		yes: key.NewBinding(key.WithKeys(keySubmit.Keys()...), key.WithHelp(keySubmit.Help().Key, strings.ToLower(yes)))}
-	c.form = huh.NewForm(huh.NewGroup(
-		huh.NewInput().Title("Comment").Description("Optional").Value(&c.note),
-		huh.NewConfirm().Title(question).Affirmative(yes).Negative("Cancel").Value(&c.ok),
-	)).WithTheme(huh.ThemeFunc(huh.ThemeCharm)).WithShowHelp(true)
+	var fields []huh.Field
+	if withComment {
+		fields = append(fields, huh.NewInput().Title("Comment").Description("Optional").Value(&c.note))
+	}
+	fields = append(fields, huh.NewConfirm().Title(question).Affirmative(yes).Negative("Cancel").Value(&c.ok))
+	c.form = huh.NewForm(huh.NewGroup(fields...)).WithTheme(huh.ThemeFunc(huh.ThemeCharm)).WithShowHelp(true)
 	c.form.SubmitCmd = func() tea.Msg {
 		if !c.ok {
 			return CmdMsg{tea.Sequence(Pop(), Status("cancelled"))}

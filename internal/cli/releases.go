@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -277,13 +276,13 @@ func (a *App) releaseStage(ctx context.Context, arg, stageName string) (*tui.Rel
 	return r, rel, stage, nil
 }
 
-// confirm asks before a release action unless --yes was given.
-func (a *App) confirm(yes bool, question, detail, verb string) error {
+// confirm asks before an action that changes what (e.g. "a release") unless --yes was given.
+func (a *App) confirm(yes bool, what, question, detail, verb string) error {
 	if yes {
 		return nil
 	}
 	if !a.interactive() {
-		return errors.New("refusing to change a release without confirmation; pass --yes")
+		return fmt.Errorf("refusing to change %s without confirmation; pass --yes", what)
 	}
 	ok, err := tui.ConfirmAction(question, detail, verb)
 	if err != nil {
@@ -320,7 +319,7 @@ func (a *App) releaseDecideCmd(approve bool) *cobra.Command {
 			if f.rejectOlder {
 				return a.promote(ctx, r, rel, stage, ap, f, detail)
 			}
-			if err := a.confirm(f.yes, question, detail, verb); err != nil {
+			if err := a.confirm(f.yes, "a release", question, detail, verb); err != nil {
 				return err
 			}
 			if err := r.Client.SetApproval(ctx, r.Project, ap.ID, approve, f.comment); err != nil {
@@ -352,7 +351,7 @@ func (a *App) promote(ctx context.Context, r *tui.Releases, rel domain.Release, 
 		question = fmt.Sprintf("Approve %s and reject %d older for %s?", rel.Name, len(older), stage.Name)
 		detail += "\nAlso rejects: " + strings.Join(names, ", ")
 	}
-	if err := a.confirm(f.yes, question, detail, "Approve"); err != nil {
+	if err := a.confirm(f.yes, "a release", question, detail, "Approve"); err != nil {
 		return err
 	}
 	// Approve first, so a failed rejection never leaves the chosen release unapproved.

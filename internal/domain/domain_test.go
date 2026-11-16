@@ -230,6 +230,15 @@ func scrumCategories() []TypeCategory {
 	}
 }
 
+func TestRequirementTypes(t *testing.T) {
+	if got := strings.Join(RequirementTypes(scrumCategories()), ","); got != "Product Backlog Item" {
+		t.Errorf("scrum: %s", got)
+	}
+	if got := strings.Join(RequirementTypes(nil), ","); got != "User Story,Product Backlog Item,Requirement" {
+		t.Errorf("fallback: %s", got)
+	}
+}
+
 func TestChildTypeOptions(t *testing.T) {
 	cats := scrumCategories()
 	cases := map[string]string{

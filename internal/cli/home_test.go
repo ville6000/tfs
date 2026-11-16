@@ -40,6 +40,12 @@ func TestHome(t *testing.T) {
 			reply(map[string]any{"value": []any{map[string]any{"id": 9, "status": "completed", "result": "failed",
 				"definition": map[string]any{"id": 1, "name": "web-ci"}, "sourceBranch": "refs/heads/main",
 				"queueTime": time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)}}})
+		case strings.HasSuffix(p, "/_apis/wit/workitemtypecategories"):
+			reply(map[string]any{"value": []any{
+				map[string]any{"referenceName": "Microsoft.FeatureCategory", "workItemTypes": []any{map[string]string{"name": "Feature"}}},
+				map[string]any{"referenceName": "Microsoft.RequirementCategory",
+					"workItemTypes": []any{map[string]string{"name": "User Story"}, map[string]string{"name": "Story Spike"}}},
+			}})
 		case strings.HasSuffix(p, "/wiql"):
 			var body struct{ Query string }
 			_ = json.NewDecoder(r.Body).Decode(&body)
@@ -47,7 +53,7 @@ func TestHome(t *testing.T) {
 			reply(map[string]any{"workItems": []map[string]int{{"id": 7}}})
 		case strings.HasSuffix(p, "/_apis/wit/workitems"):
 			reply(map[string]any{"value": []any{map[string]any{"id": 7, "fields": map[string]any{
-				"System.Title": "Fix the login page", "System.WorkItemType": "Bug", "System.State": "Active", "System.TeamProject": "P"}}}})
+				"System.Title": "Fix the login page", "System.WorkItemType": "User Story", "System.State": "Active", "System.TeamProject": "P"}}}})
 		default:
 			w.WriteHeader(http.StatusNotFound)
 			reply(map[string]string{"message": "unexpected " + p})
@@ -108,7 +114,8 @@ func TestHome(t *testing.T) {
 	if !strings.Contains(buildQuery, "requestedFor=Me") {
 		t.Errorf("builds query %s", buildQuery)
 	}
-	if !strings.Contains(wiql, "[System.AssignedTo] = @Me") || !strings.Contains(wiql, "'Resolved'") {
+	if !strings.Contains(wiql, "[System.AssignedTo] = @Me") || !strings.Contains(wiql, "'Resolved'") ||
+		!strings.Contains(wiql, "[System.WorkItemType] IN ('User Story', 'Story Spike')") {
 		t.Errorf("wiql %s", wiql)
 	}
 
@@ -118,7 +125,7 @@ func TestHome(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Waiting for your review (1)", "41  web   Bob     Web Team", "Release approvals", `error: server returned 401: no Release scope (the token may lack the Release "Read" scope)`,
-		"Your pull requests (1)", "Your builds (1)", "web-ci", "Your work items (1)", "Fix the login page",
+		"Your pull requests (1)", "Your builds (1)", "web-ci", "Your user stories (1)", "Fix the login page",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)

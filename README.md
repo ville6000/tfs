@@ -21,7 +21,7 @@ enter details • o open in browser • s set state • a assign to me • w wor
 
 - **Home screen** — `tfs` on its own shows what waits for you: pull requests to review, including
   those assigned to a group or team you belong to, and release approvals; and how your own pull
-  requests, builds and work items are doing.
+  requests, builds and user stories are doing.
 - **Work items** — list, filter, show (description, repro steps, acceptance criteria, comments
   rendered as Markdown), create, update state/title/assignee/description/acceptance criteria/repro
   steps, comment, open in the browser.
@@ -136,7 +136,8 @@ The home screen lists, for the project:
 - **Your pull requests** with their approval status.
 - **Your builds** — your newest build of each pipeline and branch from the last 7 days. While one
   is running the section refreshes every 10 seconds.
-- **Your work items** — open work items assigned to you.
+- **Your user stories** — open user stories assigned to you (Product Backlog Items in Scrum,
+  Requirements in CMMI); features, epics, tasks and bugs are left out.
 
 Move between sections with `tab` / `shift+tab`; the keys of the list each row comes from work
 there too, e.g. `c` checks out a pull request, `s` sets a work item's state and `a` approves a

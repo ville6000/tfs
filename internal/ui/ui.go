@@ -460,7 +460,7 @@ var (
 	HomeApprovals    = HomeSection{"Release approvals", "nothing waiting"}
 	HomePullRequests = HomeSection{"Your pull requests", "none active"}
 	HomeBuilds       = HomeSection{"Your builds", fmt.Sprintf("none in the last %d days", domain.HomeBuildDays)}
-	HomeWorkItems    = HomeSection{"Your work items", "none open"}
+	HomeWorkItems    = HomeSection{"Your user stories", "none open"}
 )
 
 // ReviewVia renders whom a review was requested from: the user ("you") or one of their groups.

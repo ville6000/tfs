@@ -25,15 +25,16 @@ func (a *App) homeCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "home",
 		Short: "What waits for you, and how your pull requests, builds and user stories are doing",
-		Long: `The home screen: what waits for you, and how your own work is doing, in the project.
+		Long: `The home screen of the project: your pull requests and reviews first, then your user
+stories, then release approvals and builds.
 
   Waiting for your review  active pull requests with you, or a group or team you belong to,
                            as a reviewer that has not voted yet (not drafts or your own)
-  Release approvals        release approvals waiting for you or your groups
   Your pull requests       your active pull requests and their approval
-  Your builds              your newest build of each pipeline and branch, last 7 days
   Your user stories        open user stories assigned to you (not features, epics,
                            tasks or bugs)
+  Release approvals        release approvals waiting for you or your groups
+  Your builds              your newest build of each pipeline and branch, last 7 days
 
 Running tfs on its own in a terminal opens it too. Finding reviews requested from your groups
 needs a token with the Identity "Read" scope, to read which groups you belong to.`,

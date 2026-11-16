@@ -109,13 +109,13 @@ const (
 	sourceWorkItems
 )
 
-// The sections, in the order they are shown: what others wait for first, then the user's own work.
+// The sections, in the order they are shown: pull requests first, then work items, then the rest.
 const (
 	sectionReviews = iota
-	sectionApprovals
 	sectionPullRequests
-	sectionBuilds
 	sectionWorkItems
+	sectionApprovals
+	sectionBuilds
 )
 
 type homeLoadedMsg struct {
@@ -184,14 +184,14 @@ func NewHome(project string, act *Actions, builds *Builds, rel *Releases, src Ho
 		sections: []*homeSection{
 			sectionReviews: section(ui.HomeReviews, sourcePullRequests, Column{Max: 8}, Column{Max: 20}, Column{Max: 20},
 				Column{Max: 24}, Column{Max: 4}, Column{Flex: true}),
-			sectionApprovals: section(ui.HomeApprovals, sourceApprovals, Column{Max: 28}, Column{Max: 24}, Column{Max: 20},
-				Column{Max: 18}, Column{Max: 4}),
 			sectionPullRequests: section(ui.HomePullRequests, sourcePullRequests, Column{Max: 8}, Column{Max: 20}, Column{Max: 24},
 				Column{Max: 20}, Column{Max: 4}, Column{Flex: true}),
-			sectionBuilds: section(ui.HomeBuilds, sourceBuilds, Column{Max: 8}, Column{Max: 28}, Column{Max: 30},
-				Column{Max: 22}, Column{Max: 4}, Column{Max: 8}),
 			sectionWorkItems: section(ui.HomeWorkItems, sourceWorkItems, Column{Max: 8}, Column{Max: 20}, Column{Max: 14},
 				Column{Flex: true}),
+			sectionApprovals: section(ui.HomeApprovals, sourceApprovals, Column{Max: 28}, Column{Max: 24}, Column{Max: 20},
+				Column{Max: 18}, Column{Max: 4}),
+			sectionBuilds: section(ui.HomeBuilds, sourceBuilds, Column{Max: 8}, Column{Max: 28}, Column{Max: 30},
+				Column{Max: 22}, Column{Max: 4}, Column{Max: 8}),
 		},
 	}
 }

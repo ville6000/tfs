@@ -132,12 +132,12 @@ The home screen lists, for the project:
   (also through other groups), are a reviewer that has not voted yet. Drafts and your own pull
   requests are left out, and so is a group request once a teammate has voted for the group. The
   `FOR` column says whether the review was asked of you or of one of your groups.
-- **Release approvals** waiting for you or your groups (limited by `releasePipelines`).
 - **Your pull requests** with their approval status.
-- **Your builds** — your newest build of each pipeline and branch from the last 7 days. While one
-  is running the section refreshes every 10 seconds.
 - **Your user stories** — open user stories assigned to you (Product Backlog Items in Scrum,
   Requirements in CMMI); features, epics, tasks and bugs are left out.
+- **Release approvals** waiting for you or your groups (limited by `releasePipelines`).
+- **Your builds** — your newest build of each pipeline and branch from the last 7 days. While one
+  is running the section refreshes every 10 seconds.
 
 Move between sections with `tab` / `shift+tab`; the keys of the list each row comes from work
 there too, e.g. `c` checks out a pull request, `s` sets a work item's state and `a` approves a

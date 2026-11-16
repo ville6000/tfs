@@ -51,14 +51,11 @@ func Home(w io.Writer, h domain.Home, now time.Time, width int) {
 	section(ui.HomePullRequests, len(h.PullRequests), "pullRequests", func() {
 		rows := make([][]Cell, len(h.PullRequests))
 		for i, p := range h.PullRequests {
-			title := p.Title
-			if p.IsDraft {
-				title = "[draft] " + title
-			}
+			title, style := ui.OwnPullRequestTitle(p)
 			rows[i] = []Cell{
 				{Text: strconv.Itoa(p.ID), Style: ui.ID}, {Text: p.Repository, Style: ui.Accent},
 				{Text: p.Approval.String(), Style: ui.ApprovalStyle(p.Approval)}, {Text: p.TargetBranch, Style: ui.Muted},
-				{Text: ui.FormatAge(p.Created, now), Style: ui.Muted}, {Text: title},
+				{Text: ui.FormatAge(p.Created, now), Style: ui.Muted}, {Text: title, Style: style},
 			}
 		}
 		Table(w, []string{"ID", "REPO", "APPROVAL", "TARGET", "AGE", "TITLE"}, rows, width)

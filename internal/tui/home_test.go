@@ -27,7 +27,8 @@ func homePRs() homeLoadedMsg {
 			{PullRequest: domain.PullRequest{ID: 41, Repository: "web", CreatedBy: "Bob", Title: "Add reset endpoint", Created: homeNow.Add(-50 * time.Hour)}, Via: "Web Team"},
 			{PullRequest: domain.PullRequest{ID: 40, Repository: "api", CreatedBy: "Carol", Title: "Fix login"}},
 		},
-		Created: []domain.PullRequest{{ID: 39, Repository: "web", Title: "Mine", Approval: domain.ApprovalApproved, TargetBranch: "main"}},
+		Created: []domain.PullRequest{{ID: 39, Repository: "web", Title: "Mine", Approval: domain.ApprovalApproved, TargetBranch: "main",
+			MergeStatus: "conflicts"}},
 	}}
 }
 
@@ -70,7 +71,7 @@ func TestHomeSections(t *testing.T) {
 	for _, want := range []string{
 		"Waiting for your review  2", "41  web  Bob    Web Team  2d", "40  api  Carol  you",
 		"Release approvals  nothing waiting",
-		"Your pull requests  1", "approved",
+		"Your pull requests  1", "approved", "[conflicts] Mine",
 		"Your builds", "no Build scope",
 		"Your user stories  1", "7  Bug  Active",
 	} {

@@ -240,7 +240,7 @@ func TestAddComment(t *testing.T) {
 func TestPullRequests(t *testing.T) {
 	c, reqs := server(t, func(*http.Request, string) (int, any) {
 		return 200, map[string]any{"value": []any{
-			map[string]any{"pullRequestId": 1, "title": "A", "status": "active", "sourceRefName": "refs/heads/feature/x", "targetRefName": "refs/heads/main",
+			map[string]any{"pullRequestId": 1, "title": "A", "status": "active", "mergeStatus": "conflicts", "sourceRefName": "refs/heads/feature/x", "targetRefName": "refs/heads/main",
 				"createdBy": map[string]string{"displayName": "Alice Smith"}, "repository": map[string]any{"name": "Repo"},
 				"reviewers": []any{map[string]any{"vote": 10}}},
 			map[string]any{"pullRequestId": 2, "title": "B", "createdBy": map[string]string{"displayName": "Bob"}, "repository": map[string]any{"name": "Other"}},
@@ -250,7 +250,7 @@ func TestPullRequests(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(prs) != 1 || prs[0].SourceBranch != "feature/x" || prs[0].Approval != domain.ApprovalApproved {
+	if len(prs) != 1 || prs[0].SourceBranch != "feature/x" || prs[0].Approval != domain.ApprovalApproved || !prs[0].HasConflicts() {
 		t.Fatalf("prs: %+v", prs)
 	}
 	if prs[0].URL != c.Collection()+"/P/_git/Repo/pullrequest/1" {

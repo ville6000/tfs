@@ -23,7 +23,7 @@ func TestHome(t *testing.T) {
 				map[string]any{"pullRequestId": 41, "status": "active", "title": "Add reset endpoint",
 					"createdBy": map[string]string{"id": "bob", "displayName": "Bob"}, "repository": map[string]string{"name": "web"},
 					"reviewers": []any{map[string]any{"id": "g-web", "displayName": "Web Team", "isContainer": true}}},
-				map[string]any{"pullRequestId": 40, "status": "active", "title": "My change",
+				map[string]any{"pullRequestId": 40, "status": "active", "title": "My change", "mergeStatus": "conflicts",
 					"createdBy": map[string]string{"id": "me", "displayName": "Me"}, "repository": map[string]string{"name": "web"}},
 			}})
 		case strings.HasSuffix(p, "/_apis/identities"):
@@ -93,11 +93,14 @@ func TestHome(t *testing.T) {
 			ID  int    `json:"id"`
 			Via string `json:"via"`
 		} `json:"reviewRequests"`
-		PullRequests []struct{ ID int } `json:"pullRequests"`
-		Builds       []struct{ ID int } `json:"builds"`
-		WorkItems    []struct{ ID int } `json:"workItems"`
-		Approvals    []any              `json:"approvals"`
-		Errors       map[string]string  `json:"errors"`
+		PullRequests []struct {
+			ID          int
+			MergeStatus string `json:"mergeStatus"`
+		} `json:"pullRequests"`
+		Builds    []struct{ ID int } `json:"builds"`
+		WorkItems []struct{ ID int } `json:"workItems"`
+		Approvals []any              `json:"approvals"`
+		Errors    map[string]string  `json:"errors"`
 	}
 	if err := json.Unmarshal([]byte(out), &h); err != nil {
 		t.Fatalf("%v\n%s", err, out)
@@ -105,7 +108,8 @@ func TestHome(t *testing.T) {
 	if len(h.ReviewRequests) != 1 || h.ReviewRequests[0].ID != 41 || h.ReviewRequests[0].Via != "Web Team" {
 		t.Errorf("review requests %+v", h.ReviewRequests)
 	}
-	if len(h.PullRequests) != 1 || h.PullRequests[0].ID != 40 || len(h.Builds) != 1 || len(h.WorkItems) != 1 {
+	if len(h.PullRequests) != 1 || h.PullRequests[0].ID != 40 || h.PullRequests[0].MergeStatus != "conflicts" ||
+		len(h.Builds) != 1 || len(h.WorkItems) != 1 {
 		t.Errorf("home %+v", h)
 	}
 	if h.Approvals == nil || !strings.Contains(h.Errors["approvals"], "no Release scope") || len(h.Errors) != 1 {
@@ -126,7 +130,7 @@ func TestHome(t *testing.T) {
 	// In the order shown: pull requests first, then work items, then the rest.
 	at := -1
 	for _, want := range []string{
-		"Waiting for your review (1)", "41  web   Bob     Web Team", "Your pull requests (1)",
+		"Waiting for your review (1)", "41  web   Bob     Web Team", "Your pull requests (1)", "[conflicts] My change",
 		"Your user stories (1)", "Fix the login page",
 		"Release approvals", `error: server returned 401: no Release scope (the token may lack the Release "Read" scope)`,
 		"Your builds (1)", "web-ci",

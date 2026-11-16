@@ -112,6 +112,7 @@ type PullRequest struct {
 	Project      string     `json:"project,omitempty"`
 	Status       string     `json:"status"`
 	IsDraft      bool       `json:"isDraft,omitempty"`
+	MergeStatus  string     `json:"mergeStatus,omitempty"` // the server's trial merge: succeeded, conflicts, queued, …
 	Approval     Approval   `json:"approval"`
 	Reviewers    []Reviewer `json:"reviewers,omitempty"`
 	URL          string     `json:"url"`
@@ -297,3 +298,7 @@ func JoinDescription(description, commits string) string {
 	}
 	return join(strings.Join(lines[:kept], "\n") + "\n" + more(len(lines)-kept))
 }
+
+// HasConflicts reports whether the pull request cannot merge into its target until its author
+// resolves conflicts.
+func (p PullRequest) HasConflicts() bool { return strings.EqualFold(p.MergeStatus, "conflicts") }

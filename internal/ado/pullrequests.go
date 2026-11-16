@@ -17,6 +17,7 @@ type pullRequestResponse struct {
 	Description   string      `json:"description"`
 	Status        string      `json:"status"`
 	IsDraft       bool        `json:"isDraft"`
+	MergeStatus   string      `json:"mergeStatus"`
 	CreationDate  apiTime     `json:"creationDate"`
 	SourceRefName string      `json:"sourceRefName"`
 	TargetRefName string      `json:"targetRefName"`
@@ -62,6 +63,7 @@ func (c *Client) mapPullRequest(r pullRequestResponse, project string) domain.Pu
 		Project:      project,
 		Status:       r.Status,
 		IsDraft:      r.IsDraft,
+		MergeStatus:  r.MergeStatus,
 		Reviewers:    reviewers,
 		Approval:     domain.ComputeApproval(reviewers),
 		URL:          r.Links.Web.Href,

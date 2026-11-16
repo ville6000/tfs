@@ -463,6 +463,20 @@ var (
 	HomeWorkItems    = HomeSection{"Your user stories", "none open"}
 )
 
+// OwnPullRequestTitle is the title of one of the user's pull requests on the home screen, with
+// the style to show it in: marked when it is a draft, and in red when it has merge conflicts,
+// which only its author can resolve.
+func OwnPullRequestTitle(p domain.PullRequest) (string, lipgloss.Style) {
+	title, style := p.Title, lipgloss.NewStyle()
+	if p.HasConflicts() {
+		title, style = "[conflicts] "+title, Danger
+	}
+	if p.IsDraft {
+		title = "[draft] " + title
+	}
+	return title, style
+}
+
 // ReviewVia renders whom a review was requested from: the user ("you") or one of their groups.
 func ReviewVia(r domain.ReviewRequest) string {
 	if r.Via == "" {

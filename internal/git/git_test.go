@@ -46,8 +46,8 @@ func TestWorktreeFlows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := g.AddWorktree(ctx, wt, "origin", "feature/pr"); err != nil {
-		t.Fatal(err)
+	if state, err := g.AddWorktree(ctx, wt, "origin", "feature/pr"); err != nil || state != WorktreeBranchNew {
+		t.Fatalf("add: %v %v", state, err)
 	}
 	if b, _ := (Git{Dir: wt}).CurrentBranch(ctx); b != "feature/pr" {
 		t.Errorf("worktree branch %q", b)
@@ -69,6 +69,85 @@ func TestWorktreeFlows(t *testing.T) {
 	}
 	if _, err := g.RemoteURL(ctx, "nope"); err == nil {
 		t.Error("expected error for missing remote")
+	}
+}
+
+// A worktree for a branch that exists locally brings it up to date with the remote's when it is
+// only behind, and leaves it alone when it has commits of its own.
+func TestAddWorktreeExistingBranch(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	ctx := context.Background()
+	tmp := t.TempDir()
+	origin, clone := filepath.Join(tmp, "origin"), filepath.Join(tmp, "clone")
+	if err := os.MkdirAll(origin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	run(t, origin, "init", "-q", "-b", "main")
+	run(t, origin, "commit", "-q", "--allow-empty", "-m", "init")
+	for _, b := range []string{"behind", "diverged", "ahead", "same", "busy"} {
+		run(t, origin, "branch", b)
+	}
+	run(t, tmp, "clone", "-q", origin, clone)
+	for _, b := range []string{"behind", "diverged", "ahead", "same", "busy"} {
+		run(t, clone, "branch", "-q", "--track", b, "origin/"+b)
+	}
+	// The remote moves on; the local branches are now stale.
+	for _, b := range []string{"behind", "diverged", "busy"} {
+		run(t, origin, "switch", "-q", b)
+		if err := os.WriteFile(filepath.Join(origin, b+".txt"), []byte("remote\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		run(t, origin, "add", ".")
+		run(t, origin, "commit", "-q", "-m", "remote "+b)
+	}
+	run(t, origin, "switch", "-q", "main")
+	for _, b := range []string{"diverged", "ahead"} {
+		run(t, clone, "switch", "-q", b)
+		run(t, clone, "commit", "-q", "--allow-empty", "-m", "local "+b)
+	}
+	run(t, clone, "switch", "-q", "busy")
+
+	g := Git{Dir: clone}
+	head := func(dir string) string {
+		s, _ := (Git{Dir: dir}).run(ctx, "log", "-1", "--format=%s")
+		return s
+	}
+	for b, want := range map[string]struct {
+		state WorktreeBranch
+		head  string
+	}{
+		"behind":   {WorktreeBranchFastForwarded, "remote behind"},
+		"diverged": {WorktreeBranchDiverged, "local diverged"},
+		"ahead":    {WorktreeBranchCurrent, "local ahead"},
+		"same":     {WorktreeBranchCurrent, "init"},
+	} {
+		if err := g.Fetch(ctx, "origin", b); err != nil {
+			t.Fatal(err)
+		}
+		wt := filepath.Join(tmp, "wt-"+b)
+		state, err := g.AddWorktree(ctx, wt, "origin", b)
+		if err != nil || state != want.state {
+			t.Errorf("%s: %v %v, want %v", b, state, err, want.state)
+		}
+		if h := head(wt); h != want.head {
+			t.Errorf("%s: worktree at %q, want %q", b, h, want.head)
+		}
+		if st, _ := (Git{Dir: wt}).run(ctx, "status", "--porcelain"); st != "" {
+			t.Errorf("%s: worktree not clean:\n%s", b, st)
+		}
+	}
+
+	// A branch checked out elsewhere is not moved: the worktree fails before that.
+	if err := g.Fetch(ctx, "origin", "busy"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.AddWorktree(ctx, filepath.Join(tmp, "wt-busy"), "origin", "busy"); err == nil {
+		t.Error("a worktree for the checked-out branch should fail")
+	}
+	if h := head(clone); h != "init" {
+		t.Errorf("checked-out branch moved to %q", h)
 	}
 }
 

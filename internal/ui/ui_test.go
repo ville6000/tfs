@@ -80,7 +80,7 @@ func TestGroupName(t *testing.T) {
 	}
 }
 
-func TestOwnPullRequestTitle(t *testing.T) {
+func TestPullRequestTitle(t *testing.T) {
 	for _, c := range []struct {
 		pr   domain.PullRequest
 		want string
@@ -90,10 +90,22 @@ func TestOwnPullRequestTitle(t *testing.T) {
 		{domain.PullRequest{Title: "Fix", MergeStatus: "queued", IsDraft: true}, "[draft] Fix", false},
 		{domain.PullRequest{Title: "Fix", MergeStatus: "conflicts"}, "[conflicts] Fix", true},
 		{domain.PullRequest{Title: "Fix", MergeStatus: "Conflicts", IsDraft: true}, "[draft] [conflicts] Fix", true},
+		{domain.PullRequest{Title: "Fix", MergeStatus: "conflicts", Status: "completed"}, "Fix", false},
 	} {
-		title, style := OwnPullRequestTitle(c.pr)
+		title, style := PullRequestTitle(c.pr)
 		if red := style.GetForeground() == Danger.GetForeground(); title != c.want || red != c.red {
 			t.Errorf("%+v: %q, red %v", c.pr, title, red)
 		}
+	}
+}
+
+func TestRenderPullRequestMarks(t *testing.T) {
+	pr := domain.PullRequest{ID: 5, Title: "Fix login", Status: "active", IsDraft: true, MergeStatus: "conflicts"}
+	if got := ansi.Strip(RenderPullRequest(pr, 80, false)); !strings.HasPrefix(got, "!5 Fix login [draft] [conflicts]\n") {
+		t.Errorf("got:\n%s", got)
+	}
+	pr.IsDraft, pr.MergeStatus = false, "succeeded"
+	if got := ansi.Strip(RenderPullRequest(pr, 80, false)); !strings.HasPrefix(got, "!5 Fix login\n") {
+		t.Errorf("got:\n%s", got)
 	}
 }

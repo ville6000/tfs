@@ -51,7 +51,7 @@ func Home(w io.Writer, h domain.Home, now time.Time, width int) {
 	section(ui.HomePullRequests, len(h.PullRequests), "pullRequests", func() {
 		rows := make([][]Cell, len(h.PullRequests))
 		for i, p := range h.PullRequests {
-			title, style := ui.OwnPullRequestTitle(p)
+			title, style := ui.PullRequestTitle(p)
 			rows[i] = []Cell{
 				{Text: strconv.Itoa(p.ID), Style: ui.ID}, {Text: p.Repository, Style: ui.Accent},
 				{Text: p.Approval.String(), Style: ui.ApprovalStyle(p.Approval)}, {Text: p.TargetBranch, Style: ui.Muted},

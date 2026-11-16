@@ -224,11 +224,14 @@ func RenderWorkItem(d domain.WorkItemDetail, collection string, width int, style
 // RenderPullRequest renders a full pull request view.
 func RenderPullRequest(pr domain.PullRequest, width int, styled bool) string {
 	var b strings.Builder
-	title := pr.Title
+	title := Bold.Render(pr.Title)
 	if pr.IsDraft {
 		title += Muted.Render(" [draft]")
 	}
-	fmt.Fprintf(&b, "%s %s\n", ID.Render(fmt.Sprintf("!%d", pr.ID)), Bold.Render(title))
+	if pr.HasConflicts() {
+		title += Danger.Render(" [conflicts]")
+	}
+	fmt.Fprintf(&b, "%s %s\n", ID.Render(fmt.Sprintf("!%d", pr.ID)), title)
 	fmt.Fprintf(&b, "%s  %s → %s\n", Accent.Render(pr.Repository), pr.SourceBranch, pr.TargetBranch)
 	fmt.Fprintf(&b, "%s  ·  %s  ·  by %s  ·  %s\n", pr.Status, ApprovalStyle(pr.Approval).Render(pr.Approval.String()), pr.CreatedBy, FormatTime(pr.Created))
 	b.WriteString(Muted.Render(pr.URL) + "\n")
@@ -463,10 +466,10 @@ var (
 	HomeWorkItems    = HomeSection{"Your user stories", "none open"}
 )
 
-// OwnPullRequestTitle is the title of one of the user's pull requests on the home screen, with
-// the style to show it in: marked when it is a draft, and in red when it has merge conflicts,
-// which only its author can resolve.
-func OwnPullRequestTitle(p domain.PullRequest) (string, lipgloss.Style) {
+// PullRequestTitle is a pull request's title for a table row, with the style to show it in:
+// marked when it is a draft, and in red when it has merge conflicts, which only its author can
+// resolve.
+func PullRequestTitle(p domain.PullRequest) (string, lipgloss.Style) {
 	title, style := p.Title, lipgloss.NewStyle()
 	if p.HasConflicts() {
 		title, style = "[conflicts] "+title, Danger

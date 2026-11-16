@@ -346,7 +346,7 @@ func (h *Home) apply(msg homeLoadedMsg) tea.Cmd {
 		h.fill(sectionReviews, rows, entries, msg.err, msg.prs.Note)
 		rows, entries = nil, nil
 		for _, p := range msg.prs.Created {
-			title, style := ui.OwnPullRequestTitle(p)
+			title, style := ui.PullRequestTitle(p)
 			rows = append(rows, Row{
 				Key:    p.ID,
 				Cells:  []string{strconv.Itoa(p.ID), p.Repository, p.Approval.String(), p.TargetBranch, ui.FormatAge(p.Created, now), title},

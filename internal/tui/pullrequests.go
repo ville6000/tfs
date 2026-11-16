@@ -91,14 +91,11 @@ func (l *PullRequestList) Update(msg tea.Msg) (Screen, tea.Cmd) {
 		rows := make([]Row, len(msg.prs))
 		for i, p := range msg.prs {
 			l.prs[p.ID] = p
-			title := p.Title
-			if p.IsDraft {
-				title = "[draft] " + title
-			}
+			title, style := ui.PullRequestTitle(p)
 			rows[i] = Row{
 				Key:    p.ID,
 				Cells:  []string{strconv.Itoa(p.ID), p.Repository, p.CreatedBy, p.Approval.String(), p.TargetBranch, title},
-				Styles: []lipgloss.Style{ui.ID, ui.Accent, ui.Muted, ui.ApprovalStyle(p.Approval), ui.Muted, {}},
+				Styles: []lipgloss.Style{ui.ID, ui.Accent, ui.Muted, ui.ApprovalStyle(p.Approval), ui.Muted, style},
 			}
 		}
 		l.table.SetRows(rows)

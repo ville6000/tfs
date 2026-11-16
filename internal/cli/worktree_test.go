@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +11,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/ville6000/tfs/internal/domain"
 )
 
 // `pr checkout`, with or without --worktree, brings a stale local copy of the source branch up
@@ -143,5 +148,53 @@ func TestWorkItemWorktreeFromLatestDefault(t *testing.T) {
 	}
 	if s := gitRun(t, other, "log", "-1", "--format=%s"); s != "init" {
 		t.Errorf("--base main worktree starts at %q", s)
+	}
+}
+
+// The TUI's git actions never wait for a password: the TUI owns the terminal, so git must fail
+// instead of prompting on it.
+func TestTUIGitActionsDoNotPrompt(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	// A remote that asks for credentials.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("WWW-Authenticate", `Basic realm="tfs"`)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+	gitTestEnv(t)
+	// No credential helper or askpass program may answer in git's place.
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv("GIT_ASKPASS", "")
+	t.Setenv("SSH_ASKPASS", "")
+
+	tmp := t.TempDir()
+	origin, clone := filepath.Join(tmp, "origin"), filepath.Join(tmp, "clone")
+	gitRun(t, tmp, "init", "-q", "-b", "main", origin)
+	gitRun(t, origin, "commit", "-q", "--allow-empty", "-m", "init")
+	gitRun(t, tmp, "clone", "-q", origin, clone)
+	gitRun(t, clone, "remote", "set-url", "origin", srv.URL+"/repo.git")
+	t.Chdir(clone)
+
+	act := (&App{out: &bytes.Buffer{}, errOut: &bytes.Buffer{}}).actions()
+	w := domain.WorkItem{ID: 7, Title: "Fix login", Type: "User Story"}
+	pr := domain.PullRequest{ID: 5, SourceBranch: "feature/pr"}
+	for name, run := range map[string]func(context.Context) error{
+		"branch": func(ctx context.Context) error { _, err := act.Branch(ctx, w); return err },
+		"worktree": func(ctx context.Context) error {
+			_, _, err := act.Worktree(ctx, w)
+			return err
+		},
+		"checkout":    func(ctx context.Context) error { _, err := act.CheckoutPR(ctx, pr, false); return err },
+		"pr worktree": func(ctx context.Context) error { _, err := act.CheckoutPR(ctx, pr, true); return err },
+	} {
+		// A prompt would block until the timeout kills git.
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		err := run(ctx)
+		cancel()
+		if err == nil || !strings.Contains(err.Error(), "terminal prompts disabled") {
+			t.Errorf("%s: %v", name, err)
+		}
 	}
 }

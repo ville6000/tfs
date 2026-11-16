@@ -702,7 +702,7 @@ If the branch already exists, tfs just switches to it.`,
 			if err != nil {
 				return err
 			}
-			msg, err := a.workItemBranch(ctx, w, base)
+			msg, err := a.workItemBranch(ctx, git.Git{}, w, base)
 			if err != nil {
 				return err
 			}
@@ -714,8 +714,9 @@ If the branch already exists, tfs just switches to it.`,
 	return cmd
 }
 
-// workItemBranch creates (or switches to) the work item's branch and describes what it did.
-func (a *App) workItemBranch(ctx context.Context, w domain.WorkItem, base string) (string, error) {
+// workItemBranch creates (or switches to) the work item's branch with g and describes what it
+// did.
+func (a *App) workItemBranch(ctx context.Context, g git.Git, w domain.WorkItem, base string) (string, error) {
 	cfg, err := a.config()
 	if err != nil {
 		return "", err
@@ -724,7 +725,6 @@ func (a *App) workItemBranch(ctx context.Context, w domain.WorkItem, base string
 		return "", fmt.Errorf("work item #%d has no usable title to derive a branch name from", w.ID)
 	}
 	branch := domain.BranchName(cfg.String("branchTemplate"), w)
-	g := git.Git{}
 	if g.LocalBranchExists(ctx, branch) {
 		if _, err := g.SwitchNewBranch(ctx, branch, ""); err != nil {
 			return "", err
@@ -784,7 +784,7 @@ branch starts from the remote's default branch, fetched first so it is up to dat
 			if err != nil {
 				return err
 			}
-			branch, wt, err := a.workItemWorktree(ctx, w, path, base)
+			branch, wt, err := a.workItemWorktree(ctx, git.Git{}, w, path, base)
 			if err != nil {
 				return err
 			}
@@ -797,9 +797,9 @@ branch starts from the remote's default branch, fetched first so it is up to dat
 	return cmd
 }
 
-// workItemWorktree creates a worktree with the work item's new branch, from base or else from
-// the latest default branch of the remote.
-func (a *App) workItemWorktree(ctx context.Context, w domain.WorkItem, path, base string) (branch, wt string, err error) {
+// workItemWorktree creates a worktree with g for the work item's new branch, from base or else
+// from the latest default branch of the remote.
+func (a *App) workItemWorktree(ctx context.Context, g git.Git, w domain.WorkItem, path, base string) (branch, wt string, err error) {
 	cfg, err := a.config()
 	if err != nil {
 		return "", "", err
@@ -809,7 +809,6 @@ func (a *App) workItemWorktree(ctx context.Context, w domain.WorkItem, path, bas
 		return "", "", fmt.Errorf("work item #%d has no usable title to derive a branch name from", w.ID)
 	}
 	branch = domain.BranchName(cfg.String("branchTemplate"), w)
-	g := git.Git{}
 	if path == "" {
 		if path, err = g.SiblingPath(ctx, fmt.Sprintf("%d-%s", w.ID, slug)); err != nil {
 			return "", "", err

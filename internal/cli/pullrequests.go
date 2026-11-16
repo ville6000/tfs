@@ -161,7 +161,7 @@ git pull --ff-only would. A local branch with commits of its own is left as it i
 			if err != nil {
 				return err
 			}
-			msg, err := a.checkoutPullRequest(cmd.Context(), pr, worktree || path != "", path)
+			msg, err := a.checkoutPullRequest(cmd.Context(), git.Git{}, pr, worktree || path != "", path)
 			if err != nil {
 				return err
 			}
@@ -174,7 +174,9 @@ git pull --ff-only would. A local branch with commits of its own is left as it i
 	return cmd
 }
 
-func (a *App) checkoutPullRequest(ctx context.Context, pr domain.PullRequest, worktree bool, path string) (string, error) {
+// checkoutPullRequest checks out pr's source branch with g, or puts it in a new worktree, and
+// describes what it did.
+func (a *App) checkoutPullRequest(ctx context.Context, g git.Git, pr domain.PullRequest, worktree bool, path string) (string, error) {
 	cfg, err := a.config()
 	if err != nil {
 		return "", err
@@ -184,7 +186,6 @@ func (a *App) checkoutPullRequest(ctx context.Context, pr domain.PullRequest, wo
 		return "", fmt.Errorf("pull request !%d has no source branch", pr.ID)
 	}
 	remote := cfg.String("remote")
-	g := git.Git{}
 	if err := g.Fetch(ctx, remote, branch); err != nil {
 		return "", err
 	}

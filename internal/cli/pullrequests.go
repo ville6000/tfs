@@ -150,8 +150,8 @@ func (a *App) prCheckoutCmd() *cobra.Command {
 		Long: `Fetch a pull request's source branch and check it out, or put it in a new worktree with
 --worktree.
 
-When the branch already exists locally, the worktree fast-forwards it to the fetched branch. A
-local branch with commits of its own is left as it is.`,
+When the branch already exists locally and is behind the fetched one, it is fast-forwarded, as
+git pull --ff-only would. A local branch with commits of its own is left as it is.`,
 		Example: `  tfs pr checkout 4567
   tfs pr checkout 4567 --worktree            # ../<repo>-pr-4567
   tfs pr checkout 4567 --worktree --path ../review`,
@@ -189,10 +189,11 @@ func (a *App) checkoutPullRequest(ctx context.Context, pr domain.PullRequest, wo
 		return "", err
 	}
 	if !worktree {
-		if err := g.Checkout(ctx, remote, branch); err != nil {
+		update, err := g.Checkout(ctx, remote, branch)
+		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("Checked out %s (!%d)", branch, pr.ID), nil
+		return fmt.Sprintf("Checked out %s (!%d)", branch, pr.ID) + updateNote(update, remote, branch), nil
 	}
 	if path == "" {
 		root, err := g.Root(ctx)
@@ -204,18 +205,22 @@ func (a *App) checkoutPullRequest(ctx context.Context, pr domain.PullRequest, wo
 	if abs, err := filepath.Abs(path); err == nil {
 		path = abs
 	}
-	state, err := g.AddWorktree(ctx, path, remote, branch)
+	update, err := g.AddWorktree(ctx, path, remote, branch)
 	if err != nil {
 		return "", err
 	}
-	msg := fmt.Sprintf("Created worktree %s on %s (!%d)", path, branch, pr.ID)
-	switch state {
-	case git.WorktreeBranchFastForwarded:
-		msg += fmt.Sprintf(", fast-forwarded to %s/%s", remote, branch)
-	case git.WorktreeBranchDiverged:
-		msg += fmt.Sprintf("; the local branch has diverged from %s/%s, so it was left as it was", remote, branch)
+	return fmt.Sprintf("Created worktree %s on %s (!%d)", path, branch, pr.ID) + updateNote(update, remote, branch), nil
+}
+
+// updateNote ends a checkout message with what happened to an existing local branch.
+func updateNote(u git.BranchUpdate, remote, branch string) string {
+	switch u {
+	case git.BranchFastForwarded:
+		return fmt.Sprintf(", fast-forwarded to %s/%s", remote, branch)
+	case git.BranchDiverged:
+		return fmt.Sprintf("; the local branch has diverged from %s/%s, so it was left as it was", remote, branch)
 	}
-	return msg, nil
+	return ""
 }
 
 func (a *App) prCreateCmd() *cobra.Command {

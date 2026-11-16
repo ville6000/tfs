@@ -11,19 +11,21 @@ import (
 	"testing"
 )
 
-// `pr checkout --worktree` brings a stale local copy of the source branch up to date.
-func TestPullRequestWorktreeFastForwards(t *testing.T) {
+// `pr checkout`, with or without --worktree, brings a stale local copy of the source branch up
+// to date.
+func TestPullRequestCheckoutFastForwards(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not installed")
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		if !strings.HasSuffix(r.URL.Path, "/_apis/git/pullrequests/5") {
+		branch := map[string]string{"5": "feature/pr", "6": "feature/other"}[path.Base(r.URL.Path)]
+		if !strings.Contains(r.URL.Path, "/_apis/git/pullrequests/") || branch == "" {
 			http.Error(w, "unexpected "+r.URL.Path, http.StatusNotFound)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"pullRequestId": 5, "status": "active", "title": "Review me",
-			"sourceRefName": "refs/heads/feature/pr", "targetRefName": "refs/heads/main"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"pullRequestId": map[string]int{"feature/pr": 5, "feature/other": 6}[branch],
+			"status": "active", "title": "Review me", "sourceRefName": "refs/heads/" + branch, "targetRefName": "refs/heads/main"})
 	}))
 	defer srv.Close()
 	gitTestEnv(t)
@@ -32,11 +34,15 @@ func TestPullRequestWorktreeFastForwards(t *testing.T) {
 	origin, clone := filepath.Join(tmp, "origin"), filepath.Join(tmp, "clone")
 	gitRun(t, tmp, "init", "-q", "-b", "main", origin)
 	gitRun(t, origin, "commit", "-q", "--allow-empty", "-m", "init")
-	gitRun(t, origin, "branch", "feature/pr")
+	for _, b := range []string{"feature/pr", "feature/other"} {
+		gitRun(t, origin, "branch", b)
+	}
 	gitRun(t, tmp, "clone", "-q", origin, clone)
-	gitRun(t, clone, "branch", "-q", "--track", "feature/pr", "origin/feature/pr")
-	gitRun(t, origin, "switch", "-q", "feature/pr")
-	gitRun(t, origin, "commit", "-q", "--allow-empty", "-m", "review fix")
+	for _, b := range []string{"feature/pr", "feature/other"} {
+		gitRun(t, clone, "branch", "-q", "--track", b, "origin/"+b)
+		gitRun(t, origin, "switch", "-q", b)
+		gitRun(t, origin, "commit", "-q", "--allow-empty", "-m", "review fix on "+b)
+	}
 	t.Chdir(clone)
 	if _, err := runCLI(t, "config", "set", "collectionUrl", srv.URL+"/Col"); err != nil {
 		t.Fatal(err)
@@ -50,8 +56,19 @@ func TestPullRequestWorktreeFastForwards(t *testing.T) {
 	if !strings.Contains(out, "on feature/pr (!5), fast-forwarded to origin/feature/pr") {
 		t.Errorf("output: %s", out)
 	}
-	if s := gitRun(t, wt, "log", "-1", "--format=%s"); s != "review fix" {
+	if s := gitRun(t, wt, "log", "-1", "--format=%s"); s != "review fix on feature/pr" {
 		t.Errorf("worktree at %q, want the pull request's latest commit", s)
+	}
+
+	out, err = runCLI(t, "pr", "checkout", "6")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "Checked out feature/other (!6), fast-forwarded to origin/feature/other") {
+		t.Errorf("output: %s", out)
+	}
+	if s := gitRun(t, clone, "log", "-1", "--format=%s"); s != "review fix on feature/other" {
+		t.Errorf("checkout at %q, want the pull request's latest commit", s)
 	}
 }
 

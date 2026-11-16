@@ -147,62 +147,82 @@ func (g Git) LocalBranchExists(ctx context.Context, branch string) bool {
 	return err == nil
 }
 
-// Checkout switches to branch, creating a tracking branch from remote when it does not exist
-// locally.
-func (g Git) Checkout(ctx context.Context, remote, branch string) error {
-	if g.LocalBranchExists(ctx, branch) {
-		_, err := g.run(ctx, "checkout", branch)
-		return err
-	}
-	_, err := g.run(ctx, "checkout", "-b", branch, "--track", remote+"/"+branch)
-	return err
-}
+// BranchUpdate is what Checkout or AddWorktree did with the branch it checked out.
+type BranchUpdate int
 
-// WorktreeBranch is what AddWorktree did with the branch it checked out.
-type WorktreeBranch int
-
-// Worktree branch outcomes.
+// Branch update outcomes.
 const (
-	WorktreeBranchNew           WorktreeBranch = iota // created from the remote branch
-	WorktreeBranchCurrent                             // the local branch already had the remote's commits
-	WorktreeBranchFastForwarded                       // the local branch was behind and now matches the remote
-	WorktreeBranchDiverged                            // the local branch and the remote both have commits the other lacks; left as it was
+	BranchNew           BranchUpdate = iota // created from the remote branch
+	BranchCurrent                           // the local branch already had the remote's commits
+	BranchFastForwarded                     // the local branch was behind and now matches the remote
+	BranchDiverged                          // the local branch and the remote both have commits the other lacks; left as it was
 )
+
+// Checkout switches to branch, creating a tracking branch from remote when it does not exist
+// locally. An existing local branch that is behind the remote's, fetched beforehand, is
+// fast-forwarded; local changes git would have to overwrite to do so make it fail after the
+// switch.
+func (g Git) Checkout(ctx context.Context, remote, branch string) (BranchUpdate, error) {
+	if !g.LocalBranchExists(ctx, branch) {
+		_, err := g.run(ctx, "checkout", "-b", branch, "--track", remote+"/"+branch)
+		return BranchNew, err
+	}
+	update, err := g.pendingUpdate(ctx, remote, branch)
+	if err != nil {
+		return BranchCurrent, err
+	}
+	if _, err := g.run(ctx, "checkout", branch); err != nil {
+		return BranchCurrent, err
+	}
+	if update != BranchFastForwarded {
+		return update, nil
+	}
+	return g.fastForward(ctx, remote, branch)
+}
 
 // AddWorktree adds a worktree at path for an existing remote branch, fetched beforehand. When
 // the branch exists locally and is behind the remote's, it is fast-forwarded in the new worktree.
-func (g Git) AddWorktree(ctx context.Context, path, remote, branch string) (WorktreeBranch, error) {
-	local, upstream := "refs/heads/"+branch, "refs/remotes/"+remote+"/"+branch
+func (g Git) AddWorktree(ctx context.Context, path, remote, branch string) (BranchUpdate, error) {
 	if !g.LocalBranchExists(ctx, branch) {
 		_, err := g.run(ctx, "worktree", "add", "--track", "-b", branch, path, remote+"/"+branch)
-		return WorktreeBranchNew, err
+		return BranchNew, err
 	}
-	hasRemote, err := g.isAncestor(ctx, upstream, local)
+	update, err := g.pendingUpdate(ctx, remote, branch)
 	if err != nil {
-		return WorktreeBranchCurrent, err
-	}
-	behind := false
-	if !hasRemote {
-		if behind, err = g.isAncestor(ctx, local, upstream); err != nil {
-			return WorktreeBranchCurrent, err
-		}
+		return BranchCurrent, err
 	}
 	if _, err := g.run(ctx, "worktree", "add", path, branch); err != nil {
-		return WorktreeBranchCurrent, err
+		return BranchCurrent, err
 	}
-	switch {
-	case hasRemote:
-		return WorktreeBranchCurrent, nil
-	case !behind:
-		return WorktreeBranchDiverged, nil
+	if update != BranchFastForwarded {
+		return update, nil
 	}
-	// Fast-forward in the new worktree, where the branch is now checked out (and only there, or
-	// adding the worktree would have failed), so its files move with it.
-	wt := Git{Dir: path, NoPrompt: g.NoPrompt}
-	if _, err := wt.run(ctx, "merge", "--ff-only", "--quiet", upstream); err != nil {
-		return WorktreeBranchCurrent, err
+	// The branch is now checked out in the new worktree, and only there (or adding the worktree
+	// would have failed).
+	return Git{Dir: path, NoPrompt: g.NoPrompt}.fastForward(ctx, remote, branch)
+}
+
+// pendingUpdate tells how the local branch compares with remote's: BranchCurrent when it has all
+// the remote's commits, BranchFastForwarded when it is only behind, so fast-forwarding it is
+// safe, and BranchDiverged otherwise.
+func (g Git) pendingUpdate(ctx context.Context, remote, branch string) (BranchUpdate, error) {
+	local, upstream := "refs/heads/"+branch, "refs/remotes/"+remote+"/"+branch
+	if hasRemote, err := g.isAncestor(ctx, upstream, local); err != nil || hasRemote {
+		return BranchCurrent, err
 	}
-	return WorktreeBranchFastForwarded, nil
+	behind, err := g.isAncestor(ctx, local, upstream)
+	if err != nil || !behind {
+		return BranchDiverged, err
+	}
+	return BranchFastForwarded, nil
+}
+
+// fastForward moves the branch checked out in g.Dir, and its files, to remote's branch.
+func (g Git) fastForward(ctx context.Context, remote, branch string) (BranchUpdate, error) {
+	if _, err := g.run(ctx, "merge", "--ff-only", "--quiet", "refs/remotes/"+remote+"/"+branch); err != nil {
+		return BranchCurrent, fmt.Errorf("checked out %s but could not fast-forward it to %s/%s: %w", branch, remote, branch, err)
+	}
+	return BranchFastForwarded, nil
 }
 
 // isAncestor reports whether commit a is an ancestor of commit b, or the same commit.

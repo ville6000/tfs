@@ -46,7 +46,7 @@ func TestWorktreeFlows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state, err := g.AddWorktree(ctx, wt, "origin", "feature/pr"); err != nil || state != WorktreeBranchNew {
+	if state, err := g.AddWorktree(ctx, wt, "origin", "feature/pr"); err != nil || state != BranchNew {
 		t.Fatalf("add: %v %v", state, err)
 	}
 	if b, _ := (Git{Dir: wt}).CurrentBranch(ctx); b != "feature/pr" {
@@ -64,7 +64,7 @@ func TestWorktreeFlows(t *testing.T) {
 	if up, err := g.run(ctx, "config", "--get", "branch.feature/2-y.merge"); err == nil {
 		t.Errorf("new branch should not track the base, tracks %q", up)
 	}
-	if err := g.Checkout(ctx, "origin", "feature/pr"); err == nil {
+	if _, err := g.Checkout(ctx, "origin", "feature/pr"); err == nil {
 		t.Error("checkout of a branch used by a worktree should fail")
 	}
 	if _, err := g.RemoteURL(ctx, "nope"); err == nil {
@@ -115,13 +115,13 @@ func TestAddWorktreeExistingBranch(t *testing.T) {
 		return s
 	}
 	for b, want := range map[string]struct {
-		state WorktreeBranch
+		state BranchUpdate
 		head  string
 	}{
-		"behind":   {WorktreeBranchFastForwarded, "remote behind"},
-		"diverged": {WorktreeBranchDiverged, "local diverged"},
-		"ahead":    {WorktreeBranchCurrent, "local ahead"},
-		"same":     {WorktreeBranchCurrent, "init"},
+		"behind":   {BranchFastForwarded, "remote behind"},
+		"diverged": {BranchDiverged, "local diverged"},
+		"ahead":    {BranchCurrent, "local ahead"},
+		"same":     {BranchCurrent, "init"},
 	} {
 		if err := g.Fetch(ctx, "origin", b); err != nil {
 			t.Fatal(err)
@@ -148,6 +148,92 @@ func TestAddWorktreeExistingBranch(t *testing.T) {
 	}
 	if h := head(clone); h != "init" {
 		t.Errorf("checked-out branch moved to %q", h)
+	}
+}
+
+// Checking out a branch that exists locally brings it up to date with the remote's when it is
+// only behind, as git pull --ff-only would.
+func TestCheckoutExistingBranch(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	ctx := context.Background()
+	tmp := t.TempDir()
+	origin, clone := filepath.Join(tmp, "origin"), filepath.Join(tmp, "clone")
+	if err := os.MkdirAll(origin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write := func(dir, name, text string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run(t, origin, "init", "-q", "-b", "main")
+	write(origin, "f.txt", "base\n")
+	run(t, origin, "add", ".")
+	run(t, origin, "commit", "-q", "-m", "init")
+	branches := []string{"behind", "current", "diverged", "dirty"}
+	for _, b := range branches {
+		run(t, origin, "branch", b)
+	}
+	run(t, tmp, "clone", "-q", origin, clone)
+	for _, b := range branches {
+		run(t, clone, "branch", "-q", "--track", b, "origin/"+b)
+	}
+	// The remote moves on; the local branches are now stale.
+	for _, b := range branches {
+		run(t, origin, "switch", "-q", b)
+		write(origin, "f.txt", "remote "+b+"\n")
+		run(t, origin, "commit", "-q", "-am", "remote "+b)
+	}
+	run(t, origin, "switch", "-q", "main")
+	run(t, clone, "switch", "-q", "diverged")
+	run(t, clone, "commit", "-q", "--allow-empty", "-m", "local diverged")
+
+	g := Git{Dir: clone}
+	head := func() string {
+		s, _ := g.run(ctx, "log", "-1", "--format=%s")
+		return s
+	}
+	for _, b := range branches {
+		if err := g.Fetch(ctx, "origin", b); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, c := range []struct {
+		branch, on string // on: the branch checked out before
+		want       BranchUpdate
+		head       string
+	}{
+		{"behind", "main", BranchFastForwarded, "remote behind"},
+		{"current", "current", BranchFastForwarded, "remote current"}, // re-running checkout to update
+		{"diverged", "main", BranchDiverged, "local diverged"},
+	} {
+		run(t, clone, "switch", "-q", c.on)
+		u, err := g.Checkout(ctx, "origin", c.branch)
+		if err != nil || u != c.want {
+			t.Errorf("%s: %v %v, want %v", c.branch, u, err, c.want)
+		}
+		if h := head(); h != c.head {
+			t.Errorf("%s: at %q, want %q", c.branch, h, c.head)
+		}
+		if st, _ := g.run(ctx, "status", "--porcelain"); st != "" {
+			t.Errorf("%s: not clean:\n%s", c.branch, st)
+		}
+	}
+
+	// Local changes the fast-forward would overwrite stop it, after the switch.
+	run(t, clone, "switch", "-q", "dirty")
+	write(clone, "f.txt", "mine\n")
+	if _, err := g.Checkout(ctx, "origin", "dirty"); err == nil || !strings.Contains(err.Error(), "checked out dirty but could not fast-forward it to origin/dirty") {
+		t.Errorf("dirty: %v", err)
+	}
+	if h := head(); h != "init" {
+		t.Errorf("dirty: moved to %q", h)
+	}
+	if b, _ := os.ReadFile(filepath.Join(clone, "f.txt")); string(b) != "mine\n" {
+		t.Errorf("dirty: local change lost: %q", b)
 	}
 }
 

@@ -206,7 +206,7 @@ tfs pr list                                  # active PRs in the project
 tfs pr list --status all --creator alice --repo web
 tfs pr show 4567
 tfs pr open 4567
-tfs pr checkout 4567                         # fetch and switch to the source branch
+tfs pr checkout 4567                         # fetch and switch to the source branch, up to date
 tfs pr checkout 4567 --worktree              # or a worktree at ../<repo>-pr-4567, up to date
 tfs pr create                                # open the create-PR page for the current branch
 tfs pr create --target develop
@@ -216,8 +216,8 @@ tfs pr create --submit --fill-commits        # the branch's commits as the descr
 tfs pr create --submit --work-item 123 --work-item '#124'
 ```
 
-`pr checkout --worktree` fast-forwards a local copy of the source branch that is behind the
-pull request's; one with commits of its own is left as it is, and tfs says so.
+`pr checkout`, with or without `--worktree`, fast-forwards a local copy of the source branch that
+is behind the pull request's; one with commits of its own is left as it is, and tfs says so.
 
 `pr create --submit` pushes the branch first when the remote lacks it or is behind (never forced;
 `--no-push` skips this). When the remote branch has commits yours lacks, it is left alone with a

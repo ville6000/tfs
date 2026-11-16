@@ -56,7 +56,7 @@ func keyNames(s Screen) string {
 func TestHomeSections(t *testing.T) {
 	h := newTestHome()
 	view := ansi.Strip(h.View())
-	for _, want := range []string{"Waiting for your review  loading…", "Your work items  loading…"} {
+	for _, want := range []string{"Waiting for your review  loading…", "Your user stories  loading…"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("missing %q before loading:\n%s", want, view)
 		}
@@ -72,7 +72,7 @@ func TestHomeSections(t *testing.T) {
 		"Release approvals  nothing waiting",
 		"Your pull requests  1", "approved",
 		"Your builds", "no Build scope",
-		"Your work items  1", "7  Bug  Active",
+		"Your user stories  1", "7  Bug  Active",
 	} {
 		if !strings.Contains(view, want) {
 			t.Errorf("missing %q in:\n%s", want, view)

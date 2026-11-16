@@ -24,7 +24,7 @@ const (
 func (a *App) homeCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "home",
-		Short: "What waits for you, and how your pull requests, builds and work items are doing",
+		Short: "What waits for you, and how your pull requests, builds and user stories are doing",
 		Long: `The home screen: what waits for you, and how your own work is doing, in the project.
 
   Waiting for your review  active pull requests with you, or a group or team you belong to,
@@ -32,7 +32,8 @@ func (a *App) homeCmd() *cobra.Command {
   Release approvals        release approvals waiting for you or your groups
   Your pull requests       your active pull requests and their approval
   Your builds              your newest build of each pipeline and branch, last 7 days
-  Your work items          open work items assigned to you
+  Your user stories        open user stories assigned to you (not features, epics,
+                           tasks or bugs)
 
 Running tfs on its own in a terminal opens it too. Finding reviews requested from your groups
 needs a token with the Identity "Read" scope, to read which groups you belong to.`,
@@ -106,8 +107,12 @@ func (a *App) home(ctx context.Context) error {
 			return domain.LatestBuilds(bs, time.Now().AddDate(0, 0, -domain.HomeBuildDays)), nil
 		},
 		WorkItems: func(ctx context.Context) ([]domain.WorkItem, error) {
+			// User stories only, by whatever name the process gives them; the standard names
+			// when the categories cannot be read.
+			cats, _ := client.TypeCategories(ctx, project)
 			items, err := client.ListWorkItems(ctx, domain.WorkItemQuery{
-				Project: project, AssignedTo: "@me", ExcludedStates: domain.NotOpenStates, Top: homeWorkItems,
+				Project: project, AssignedTo: "@me", Types: domain.RequirementTypes(cats),
+				ExcludedStates: domain.NotOpenStates, Top: homeWorkItems,
 			})
 			return items, hint(ctx, err, `Work Items "Read"`)
 		},

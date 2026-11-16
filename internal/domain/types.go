@@ -44,6 +44,18 @@ var fallbackChild = map[string]string{
 // FallbackTypes are offered when the server's categories are unavailable.
 var FallbackTypes = []string{"Epic", "Feature", "User Story", "Product Backlog Item", "Task", "Bug", "Issue"}
 
+// RequirementTypes returns the project's user story types: those of its requirement category,
+// such as User Story (Agile), Product Backlog Item (Scrum), Requirement (CMMI) or Issue (Basic).
+// Without that category in cats it returns the standard processes' names.
+func RequirementTypes(cats []TypeCategory) []string {
+	for _, c := range cats {
+		if c.RefName == CategoryRequirement && len(c.Types) > 0 {
+			return c.Types
+		}
+	}
+	return []string{"User Story", "Product Backlog Item", "Requirement"}
+}
+
 // ChildTypeOptions returns the work item types offered when creating a child of parentType,
 // with the most likely child type first (Epic → Feature → User Story/PBI → Task).
 // Only backlog types are offered: Epic, Feature, requirement, task and bug categories plus

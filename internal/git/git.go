@@ -168,9 +168,15 @@ func (g Git) AddWorktree(ctx context.Context, path, remote, branch string) error
 	return err
 }
 
-// AddWorktreeNewBranch adds a worktree at path with a new branch from HEAD.
-func (g Git) AddWorktreeNewBranch(ctx context.Context, path, branch string) error {
-	_, err := g.run(ctx, "worktree", "add", path, "-b", branch)
+// AddWorktreeNewBranch adds a worktree at path with a new branch from base, or from HEAD when
+// base is empty.
+func (g Git) AddWorktreeNewBranch(ctx context.Context, path, branch, base string) error {
+	// --no-track: the new branch must not track the base (e.g. origin/main) for pushes.
+	args := []string{"worktree", "add", "--no-track", "-b", branch, path}
+	if base != "" {
+		args = append(args, base)
+	}
+	_, err := g.run(ctx, args...)
 	return err
 }
 

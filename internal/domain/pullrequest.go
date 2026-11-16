@@ -300,5 +300,8 @@ func JoinDescription(description, commits string) string {
 }
 
 // HasConflicts reports whether the pull request cannot merge into its target until its author
-// resolves conflicts.
-func (p PullRequest) HasConflicts() bool { return strings.EqualFold(p.MergeStatus, "conflicts") }
+// resolves conflicts. A completed or abandoned one never does: there is nothing left to merge.
+func (p PullRequest) HasConflicts() bool {
+	closed := strings.EqualFold(p.Status, "completed") || strings.EqualFold(p.Status, "abandoned")
+	return !closed && strings.EqualFold(p.MergeStatus, "conflicts")
+}

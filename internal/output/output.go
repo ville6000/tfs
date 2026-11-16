@@ -86,17 +86,14 @@ func WorkItems(w io.Writer, items []domain.WorkItem, width int) {
 func PullRequests(w io.Writer, prs []domain.PullRequest, width int) {
 	rows := make([][]Cell, len(prs))
 	for i, p := range prs {
-		title := p.Title
-		if p.IsDraft {
-			title = "[draft] " + title
-		}
+		title, style := ui.PullRequestTitle(p)
 		rows[i] = []Cell{
 			{Text: strconv.Itoa(p.ID), Style: ui.ID},
 			{Text: p.Repository, Style: ui.Accent},
 			{Text: p.CreatedBy, Style: ui.Muted},
 			{Text: p.Approval.String(), Style: ui.ApprovalStyle(p.Approval)},
 			{Text: p.SourceBranch + " → " + p.TargetBranch},
-			{Text: title},
+			{Text: title, Style: style},
 		}
 	}
 	Table(w, []string{"ID", "REPO", "AUTHOR", "APPROVAL", "BRANCHES", "TITLE"}, rows, width)

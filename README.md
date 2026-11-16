@@ -217,6 +217,9 @@ tfs pr create --submit --fill-commits        # the branch's commits as the descr
 tfs pr create --submit --work-item 123 --work-item '#124'
 ```
 
+`pr list` and `pr show`, like the home screen, mark an active pull request that cannot merge until
+its author resolves conflicts with `[conflicts]`, in red.
+
 `pr checkout`, with or without `--worktree`, fast-forwards a local copy of the source branch that
 is behind the pull request's; one with commits of its own is left as it is, and tfs says so.
 

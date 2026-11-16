@@ -142,6 +142,17 @@ func TestTitleSlugAndBranch(t *testing.T) {
 	}
 }
 
+func TestHasConflicts(t *testing.T) {
+	for status, want := range map[string]bool{"active": true, "": true, "completed": false, "Abandoned": false} {
+		if got := (PullRequest{Status: status, MergeStatus: "conflicts"}).HasConflicts(); got != want {
+			t.Errorf("%q: %v", status, got)
+		}
+	}
+	if (PullRequest{Status: "active", MergeStatus: "succeeded"}).HasConflicts() {
+		t.Error("succeeded merge has no conflicts")
+	}
+}
+
 func TestComputeApproval(t *testing.T) {
 	cases := []struct {
 		name string

@@ -123,12 +123,21 @@ func TestHome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// In the order shown: pull requests first, then work items, then the rest.
+	at := -1
 	for _, want := range []string{
-		"Waiting for your review (1)", "41  web   Bob     Web Team", "Release approvals", `error: server returned 401: no Release scope (the token may lack the Release "Read" scope)`,
-		"Your pull requests (1)", "Your builds (1)", "web-ci", "Your user stories (1)", "Fix the login page",
+		"Waiting for your review (1)", "41  web   Bob     Web Team", "Your pull requests (1)",
+		"Your user stories (1)", "Fix the login page",
+		"Release approvals", `error: server returned 401: no Release scope (the token may lack the Release "Read" scope)`,
+		"Your builds (1)", "web-ci",
 	} {
-		if !strings.Contains(out, want) {
+		i := strings.Index(out, want)
+		switch {
+		case i < 0:
 			t.Errorf("missing %q in:\n%s", want, out)
+		case i < at:
+			t.Errorf("%q out of order in:\n%s", want, out)
 		}
+		at = max(at, i)
 	}
 }

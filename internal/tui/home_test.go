@@ -78,6 +78,15 @@ func TestHomeSections(t *testing.T) {
 			t.Errorf("missing %q in:\n%s", want, view)
 		}
 	}
+	// Pull requests first, then work items, then the rest.
+	at := -1
+	for _, title := range []string{"Waiting for your review", "Your pull requests", "Your user stories", "Release approvals", "Your builds"} {
+		i := strings.Index(view, title)
+		if i < at {
+			t.Errorf("%q out of order in:\n%s", title, view)
+		}
+		at = i
+	}
 	// Loading a later section first does not leave the cursor there: it starts on the first entry.
 	if e, _ := h.selected(); e.(domain.ReviewRequest).ID != 41 {
 		t.Errorf("starts on %+v", e)
@@ -97,14 +106,14 @@ func TestHomeNavigation(t *testing.T) {
 	if e, _ := h.selected(); e.(domain.PullRequest).ID != 39 {
 		t.Fatalf("selected %+v", e)
 	}
-	h.Update(tea.KeyPressMsg{Code: tea.KeyTab}) // empty approvals and builds are skipped
+	h.Update(tea.KeyPressMsg{Code: tea.KeyTab}) // my work items come right after my pull requests
 	if e, _ := h.selected(); e.(domain.WorkItem).ID != 7 {
 		t.Fatalf("tab selected %+v", e)
 	}
 	if keys := keyNames(h); !strings.Contains(keys, "s b w c") {
 		t.Errorf("work item keys: %s", keys)
 	}
-	h.Update(tea.KeyPressMsg{Code: tea.KeyTab}) // wraps around
+	h.Update(tea.KeyPressMsg{Code: tea.KeyTab}) // past the empty approvals and builds, wraps around
 	if e, _ := h.selected(); e.(domain.ReviewRequest).ID != 41 {
 		t.Fatalf("tab wrapped to %+v", e)
 	}

@@ -48,8 +48,6 @@ func Home(w io.Writer, h domain.Home, now time.Time, width int) {
 		lipgloss.Fprintln(w, ui.Warn.Render("note: "+note))
 	}
 
-	section(ui.HomeApprovals, len(h.Approvals), "approvals", func() { Approvals(w, h.Approvals, width) })
-
 	section(ui.HomePullRequests, len(h.PullRequests), "pullRequests", func() {
 		rows := make([][]Cell, len(h.PullRequests))
 		for i, p := range h.PullRequests {
@@ -66,8 +64,6 @@ func Home(w io.Writer, h domain.Home, now time.Time, width int) {
 		Table(w, []string{"ID", "REPO", "APPROVAL", "TARGET", "AGE", "TITLE"}, rows, width)
 	})
 
-	section(ui.HomeBuilds, len(h.Builds), "builds", func() { Builds(w, h.Builds, now, width) })
-
 	section(ui.HomeWorkItems, len(h.WorkItems), "workItems", func() {
 		rows := make([][]Cell, len(h.WorkItems))
 		for i, it := range h.WorkItems {
@@ -78,4 +74,8 @@ func Home(w io.Writer, h domain.Home, now time.Time, width int) {
 		}
 		Table(w, []string{"ID", "TYPE", "STATE", "TITLE"}, rows, width)
 	})
+
+	section(ui.HomeApprovals, len(h.Approvals), "approvals", func() { Approvals(w, h.Approvals, width) })
+
+	section(ui.HomeBuilds, len(h.Builds), "builds", func() { Builds(w, h.Builds, now, width) })
 }

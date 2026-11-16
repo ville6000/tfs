@@ -158,14 +158,61 @@ func (g Git) Checkout(ctx context.Context, remote, branch string) error {
 	return err
 }
 
-// AddWorktree adds a worktree at path for an existing remote branch.
-func (g Git) AddWorktree(ctx context.Context, path, remote, branch string) error {
-	if g.LocalBranchExists(ctx, branch) {
-		_, err := g.run(ctx, "worktree", "add", path, branch)
-		return err
+// WorktreeBranch is what AddWorktree did with the branch it checked out.
+type WorktreeBranch int
+
+// Worktree branch outcomes.
+const (
+	WorktreeBranchNew           WorktreeBranch = iota // created from the remote branch
+	WorktreeBranchCurrent                             // the local branch already had the remote's commits
+	WorktreeBranchFastForwarded                       // the local branch was behind and now matches the remote
+	WorktreeBranchDiverged                            // the local branch and the remote both have commits the other lacks; left as it was
+)
+
+// AddWorktree adds a worktree at path for an existing remote branch, fetched beforehand. When
+// the branch exists locally and is behind the remote's, it is fast-forwarded in the new worktree.
+func (g Git) AddWorktree(ctx context.Context, path, remote, branch string) (WorktreeBranch, error) {
+	local, upstream := "refs/heads/"+branch, "refs/remotes/"+remote+"/"+branch
+	if !g.LocalBranchExists(ctx, branch) {
+		_, err := g.run(ctx, "worktree", "add", "--track", "-b", branch, path, remote+"/"+branch)
+		return WorktreeBranchNew, err
 	}
-	_, err := g.run(ctx, "worktree", "add", "--track", "-b", branch, path, remote+"/"+branch)
-	return err
+	hasRemote, err := g.isAncestor(ctx, upstream, local)
+	if err != nil {
+		return WorktreeBranchCurrent, err
+	}
+	behind := false
+	if !hasRemote {
+		if behind, err = g.isAncestor(ctx, local, upstream); err != nil {
+			return WorktreeBranchCurrent, err
+		}
+	}
+	if _, err := g.run(ctx, "worktree", "add", path, branch); err != nil {
+		return WorktreeBranchCurrent, err
+	}
+	switch {
+	case hasRemote:
+		return WorktreeBranchCurrent, nil
+	case !behind:
+		return WorktreeBranchDiverged, nil
+	}
+	// Fast-forward in the new worktree, where the branch is now checked out (and only there, or
+	// adding the worktree would have failed), so its files move with it.
+	wt := Git{Dir: path, NoPrompt: g.NoPrompt}
+	if _, err := wt.run(ctx, "merge", "--ff-only", "--quiet", upstream); err != nil {
+		return WorktreeBranchCurrent, err
+	}
+	return WorktreeBranchFastForwarded, nil
+}
+
+// isAncestor reports whether commit a is an ancestor of commit b, or the same commit.
+func (g Git) isAncestor(ctx context.Context, a, b string) (bool, error) {
+	_, err := g.run(ctx, "merge-base", "--is-ancestor", a, b)
+	var e *Error
+	if errors.As(err, &e) && e.ExitCode == 1 {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 // AddWorktreeNewBranch adds a worktree at path with a new branch from base, or from HEAD when

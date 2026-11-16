@@ -147,6 +147,11 @@ func (a *App) prCheckoutCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "checkout [id]",
 		Short: "Fetch and check out a pull request's source branch",
+		Long: `Fetch a pull request's source branch and check it out, or put it in a new worktree with
+--worktree.
+
+When the branch already exists locally, the worktree fast-forwards it to the fetched branch. A
+local branch with commits of its own is left as it is.`,
 		Example: `  tfs pr checkout 4567
   tfs pr checkout 4567 --worktree            # ../<repo>-pr-4567
   tfs pr checkout 4567 --worktree --path ../review`,
@@ -199,10 +204,18 @@ func (a *App) checkoutPullRequest(ctx context.Context, pr domain.PullRequest, wo
 	if abs, err := filepath.Abs(path); err == nil {
 		path = abs
 	}
-	if err := g.AddWorktree(ctx, path, remote, branch); err != nil {
+	state, err := g.AddWorktree(ctx, path, remote, branch)
+	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("Created worktree %s on %s (!%d)", path, branch, pr.ID), nil
+	msg := fmt.Sprintf("Created worktree %s on %s (!%d)", path, branch, pr.ID)
+	switch state {
+	case git.WorktreeBranchFastForwarded:
+		msg += fmt.Sprintf(", fast-forwarded to %s/%s", remote, branch)
+	case git.WorktreeBranchDiverged:
+		msg += fmt.Sprintf("; the local branch has diverged from %s/%s, so it was left as it was", remote, branch)
+	}
+	return msg, nil
 }
 
 func (a *App) prCreateCmd() *cobra.Command {

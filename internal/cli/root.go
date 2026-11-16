@@ -199,7 +199,7 @@ func (a *App) actions() *tui.Actions {
 		Client: a.client,
 		Open:   browser.Open,
 		Worktree: func(ctx context.Context, w domain.WorkItem) (string, string, error) {
-			return a.workItemWorktree(ctx, w, "")
+			return a.workItemWorktree(ctx, w, "", "")
 		},
 		Branch: func(ctx context.Context, w domain.WorkItem) (string, error) {
 			return a.workItemBranch(ctx, w, "")

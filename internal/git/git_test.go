@@ -52,8 +52,17 @@ func TestWorktreeFlows(t *testing.T) {
 	if b, _ := (Git{Dir: wt}).CurrentBranch(ctx); b != "feature/pr" {
 		t.Errorf("worktree branch %q", b)
 	}
-	if err := g.AddWorktreeNewBranch(ctx, filepath.Join(tmp, "new"), "feature/1-x"); err != nil {
+	if err := g.AddWorktreeNewBranch(ctx, filepath.Join(tmp, "new"), "feature/1-x", ""); err != nil {
 		t.Fatal(err)
+	}
+	if b, _ := (Git{Dir: filepath.Join(tmp, "new")}).CurrentBranch(ctx); b != "feature/1-x" {
+		t.Errorf("new worktree branch %q", b)
+	}
+	if err := g.AddWorktreeNewBranch(ctx, filepath.Join(tmp, "from-pr"), "feature/2-y", "origin/feature/pr"); err != nil {
+		t.Fatal(err)
+	}
+	if up, err := g.run(ctx, "config", "--get", "branch.feature/2-y.merge"); err == nil {
+		t.Errorf("new branch should not track the base, tracks %q", up)
 	}
 	if err := g.Checkout(ctx, "origin", "feature/pr"); err == nil {
 		t.Error("checkout of a branch used by a worktree should fail")

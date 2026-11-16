@@ -732,15 +732,9 @@ func (a *App) workItemBranch(ctx context.Context, w domain.WorkItem, base string
 		return "Switched to existing branch " + branch, nil
 	}
 	if base == "" {
-		remote := cfg.String("remote")
-		def, err := g.DefaultBranch(ctx, remote)
-		if err != nil {
+		if base, err = latestDefaultBranch(ctx, g, cfg.String("remote")); err != nil {
 			return "", err
 		}
-		if err := g.Fetch(ctx, remote, def); err != nil {
-			return "", err
-		}
-		base = remote + "/" + def
 	}
 	if _, err := g.SwitchNewBranch(ctx, branch, base); err != nil {
 		return "", err
@@ -748,15 +742,33 @@ func (a *App) workItemBranch(ctx context.Context, w domain.WorkItem, base string
 	return fmt.Sprintf("Switched to new branch %s (from %s)", branch, base), nil
 }
 
+// latestDefaultBranch fetches remote's default branch and returns it as a start point for new
+// branches, e.g. origin/main.
+func latestDefaultBranch(ctx context.Context, g git.Git, remote string) (string, error) {
+	def, err := g.DefaultBranch(ctx, remote)
+	if err != nil {
+		return "", err
+	}
+	if err := g.Fetch(ctx, remote, def); err != nil {
+		return "", err
+	}
+	return remote + "/" + def, nil
+}
+
 func (a *App) wiWorktreeCmd() *cobra.Command {
-	var path string
+	var path, base string
 	cmd := &cobra.Command{
 		Use:   "worktree [id]",
 		Short: "Create a git worktree and branch for a work item",
 		Long: `Create a git worktree with a new branch named after the work item.
 
 The branch name comes from the branchTemplate config (default feature/{id}-{slug}) and the
-worktree is created next to the repository as ../<id>-<slug> unless --path is given.`,
+worktree is created next to the repository as ../<id>-<slug> unless --path is given. The
+branch starts from the remote's default branch, fetched first so it is up to date, unless
+--base is given.`,
+		Example: `  tfs wi worktree 1234
+  tfs wi worktree 1234 --base origin/develop
+  tfs wi worktree          # pick a work item`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -772,7 +784,7 @@ worktree is created next to the repository as ../<id>-<slug> unless --path is gi
 			if err != nil {
 				return err
 			}
-			branch, wt, err := a.workItemWorktree(ctx, w, path)
+			branch, wt, err := a.workItemWorktree(ctx, w, path, base)
 			if err != nil {
 				return err
 			}
@@ -781,10 +793,13 @@ worktree is created next to the repository as ../<id>-<slug> unless --path is gi
 		},
 	}
 	cmd.Flags().StringVar(&path, "path", "", "worktree location (default ../<id>-<slug>)")
+	cmd.Flags().StringVar(&base, "base", "", "start point (default: the remote's default branch, e.g. origin/main)")
 	return cmd
 }
 
-func (a *App) workItemWorktree(ctx context.Context, w domain.WorkItem, path string) (branch, wt string, err error) {
+// workItemWorktree creates a worktree with the work item's new branch, from base or else from
+// the latest default branch of the remote.
+func (a *App) workItemWorktree(ctx context.Context, w domain.WorkItem, path, base string) (branch, wt string, err error) {
 	cfg, err := a.config()
 	if err != nil {
 		return "", "", err
@@ -803,5 +818,10 @@ func (a *App) workItemWorktree(ctx context.Context, w domain.WorkItem, path stri
 	if abs, err := filepath.Abs(path); err == nil {
 		path = abs
 	}
-	return branch, path, g.AddWorktreeNewBranch(ctx, path, branch)
+	if base == "" {
+		if base, err = latestDefaultBranch(ctx, g, cfg.String("remote")); err != nil {
+			return "", "", err
+		}
+	}
+	return branch, path, g.AddWorktreeNewBranch(ctx, path, branch, base)
 }

@@ -169,7 +169,7 @@ tfs wi update 1234 --repro-steps - < steps.txt   # a Bug's repro steps, which it
 tfs wi comment 1234 "Retested on staging"
 tfs wi comment 1234 - < notes.txt           # read the comment from stdin
 tfs wi branch 1234                           # new branch feature/1234-<slug> from origin's default branch
-tfs wi worktree 1234                         # branch feature/1234-<slug> in ../1234-<slug>
+tfs wi worktree 1234                         # the same branch, in a worktree at ../1234-<slug>
 ```
 
 Descriptions, acceptance criteria, repro steps and comments are plain text: line breaks and

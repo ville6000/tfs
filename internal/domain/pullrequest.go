@@ -109,6 +109,7 @@ type PullRequest struct {
 	SourceBranch string     `json:"sourceBranch"`
 	TargetBranch string     `json:"targetBranch"`
 	Repository   string     `json:"repository"`
+	RepositoryID string     `json:"-"`
 	Project      string     `json:"project,omitempty"`
 	Status       string     `json:"status"`
 	IsDraft      bool       `json:"isDraft,omitempty"`
@@ -116,6 +117,10 @@ type PullRequest struct {
 	Approval     Approval   `json:"approval"`
 	Reviewers    []Reviewer `json:"reviewers,omitempty"`
 	URL          string     `json:"url"`
+	// AutoCompleteSetBy is who set the pull request to complete once its policies pass; empty
+	// while auto-complete is off.
+	AutoCompleteSetBy string            `json:"autoCompleteSetBy,omitempty"`
+	CompletionOptions CompletionOptions `json:"completionOptions,omitzero"`
 }
 
 // PullRequestStatuses are the accepted --status values.
@@ -302,6 +307,5 @@ func JoinDescription(description, commits string) string {
 // HasConflicts reports whether the pull request cannot merge into its target until its author
 // resolves conflicts. A completed or abandoned one never does: there is nothing left to merge.
 func (p PullRequest) HasConflicts() bool {
-	closed := strings.EqualFold(p.Status, "completed") || strings.EqualFold(p.Status, "abandoned")
-	return !closed && strings.EqualFold(p.MergeStatus, "conflicts")
+	return !p.IsClosed() && strings.EqualFold(p.MergeStatus, "conflicts")
 }

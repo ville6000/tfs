@@ -234,6 +234,9 @@ func RenderPullRequest(pr domain.PullRequest, width int, styled bool) string {
 	fmt.Fprintf(&b, "%s %s\n", ID.Render(fmt.Sprintf("!%d", pr.ID)), title)
 	fmt.Fprintf(&b, "%s  %s → %s\n", Accent.Render(pr.Repository), pr.SourceBranch, pr.TargetBranch)
 	fmt.Fprintf(&b, "%s  ·  %s  ·  by %s  ·  %s\n", pr.Status, ApprovalStyle(pr.Approval).Render(pr.Approval.String()), pr.CreatedBy, FormatTime(pr.Created))
+	if pr.HasAutoComplete() {
+		fmt.Fprintf(&b, "%s %s  ·  set by %s\n", OK.Render("auto-complete:"), pr.CompletionOptions.Summary(), pr.AutoCompleteSetBy)
+	}
 	b.WriteString(Muted.Render(pr.URL) + "\n")
 	if len(pr.Reviewers) > 0 {
 		b.WriteString("\n" + Header.Render("Reviewers") + "\n")

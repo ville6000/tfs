@@ -483,8 +483,10 @@ func (h *Home) View() string {
 func (h *Home) Help() []key.Binding {
 	keys := []key.Binding{keyEnter, keyOpen}
 	switch e, _ := h.selected(); e.(type) {
-	case domain.ReviewRequest, domain.PullRequest:
-		keys = append(keys, keyCheckout, keyPRWorktree)
+	case domain.ReviewRequest:
+		keys = append(keys, keyApprove, keyApproveComplete, keyAutoComplete, keyCheckout, keyPRWorktree)
+	case domain.PullRequest:
+		keys = append(keys, keyAutoComplete, keyCheckout, keyPRWorktree)
 	case domain.ReleaseApproval:
 		keys = append(keys, keyApprove, keyReject, keyPromote)
 	case domain.WorkItem:
@@ -517,6 +519,8 @@ func (h *Home) Update(msg tea.Msg) (Screen, tea.Cmd) {
 		return h, nil
 	case releaseChangedMsg:
 		return h, h.load(sourceApprovals)
+	case pullRequestChangedMsg:
+		return h, h.load(sourcePullRequests)
 	case tea.KeyPressMsg:
 		return h, h.key(msg)
 	}
@@ -558,9 +562,9 @@ func (h *Home) action(msg tea.KeyPressMsg) tea.Cmd {
 	}
 	switch e := e.(type) {
 	case domain.ReviewRequest:
-		return h.pullRequestKey(msg, e.PullRequest)
+		return h.pullRequestKey(msg, e.PullRequest, true)
 	case domain.PullRequest:
-		return h.pullRequestKey(msg, e)
+		return h.pullRequestKey(msg, e, false)
 	case domain.ReleaseApproval:
 		url := h.rel.Client.ReleaseWebURL(h.rel.Project, e.ReleaseID)
 		switch {
@@ -607,7 +611,9 @@ func (h *Home) action(msg tea.KeyPressMsg) tea.Cmd {
 	return nil
 }
 
-func (h *Home) pullRequestKey(msg tea.KeyPressMsg, pr domain.PullRequest) tea.Cmd {
+// pullRequestKey runs a key on a pull request: one to review when review, else one of the user's
+// own, which they can set to auto-complete but are not offered to approve.
+func (h *Home) pullRequestKey(msg tea.KeyPressMsg, pr domain.PullRequest, review bool) tea.Cmd {
 	switch {
 	case key.Matches(msg, keyEnter):
 		return Push(NewPullRequestDetail(h.act, pr))
@@ -619,6 +625,11 @@ func (h *Home) pullRequestKey(msg tea.KeyPressMsg, pr domain.PullRequest) tea.Cm
 		return h.act.checkout(pr, false)
 	case key.Matches(msg, keyPRWorktree):
 		return h.act.checkout(pr, true)
+	case key.Matches(msg, keyAutoComplete):
+		return h.act.autoComplete(pr, false)
+	case review:
+		cmd, _ := h.act.reviewKey(msg, pr)
+		return cmd
 	}
 	return nil
 }

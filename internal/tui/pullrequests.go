@@ -56,6 +56,15 @@ func NewPullRequestPicker(title string, act *Actions, load func(context.Context)
 	return l
 }
 
+func pullRequestRow(p domain.PullRequest) Row {
+	title, style := ui.PullRequestTitle(p)
+	return Row{
+		Key:    p.ID,
+		Cells:  []string{strconv.Itoa(p.ID), p.Repository, p.CreatedBy, p.Approval.String(), p.TargetBranch, title},
+		Styles: []lipgloss.Style{ui.ID, ui.Accent, ui.Muted, ui.ApprovalStyle(p.Approval), ui.Muted, style},
+	}
+}
+
 func (l *PullRequestList) reload() tea.Cmd {
 	return Busy("loading pull requests", func() tea.Msg {
 		prs, err := l.load(context.Background())
@@ -73,7 +82,7 @@ func (l *PullRequestList) Help() []key.Binding {
 	if l.Picked != nil {
 		return append([]key.Binding{keyPick}, l.table.Help()[:3]...)
 	}
-	return append([]key.Binding{keyEnter, keyOpen, keyCheckout, keyPRWorktree, keyNewPR, keyCopy, keyRefresh}, l.table.Help()...)
+	return append([]key.Binding{keyEnter, keyOpen, keyApprove, keyApproveComplete, keyAutoComplete, keyCheckout, keyPRWorktree, keyNewPR, keyCopy, keyRefresh}, l.table.Help()...)
 }
 
 func (l *PullRequestList) Update(msg tea.Msg) (Screen, tea.Cmd) {
@@ -91,14 +100,15 @@ func (l *PullRequestList) Update(msg tea.Msg) (Screen, tea.Cmd) {
 		rows := make([]Row, len(msg.prs))
 		for i, p := range msg.prs {
 			l.prs[p.ID] = p
-			title, style := ui.PullRequestTitle(p)
-			rows[i] = Row{
-				Key:    p.ID,
-				Cells:  []string{strconv.Itoa(p.ID), p.Repository, p.CreatedBy, p.Approval.String(), p.TargetBranch, title},
-				Styles: []lipgloss.Style{ui.ID, ui.Accent, ui.Muted, ui.ApprovalStyle(p.Approval), ui.Muted, style},
-			}
+			rows[i] = pullRequestRow(p)
 		}
 		l.table.SetRows(rows)
+		return l, nil
+	case pullRequestChangedMsg:
+		if _, ok := l.prs[msg.pr.ID]; ok {
+			l.prs[msg.pr.ID] = msg.pr
+			l.table.UpdateRow(pullRequestRow(msg.pr))
+		}
 		return l, nil
 	case pullRequestCreatedMsg:
 		if l.Picked != nil {
@@ -137,6 +147,10 @@ func (l *PullRequestList) Update(msg tea.Msg) (Screen, tea.Cmd) {
 			return l, l.act.checkout(pr, false)
 		case key.Matches(msg, keyPRWorktree):
 			return l, l.act.checkout(pr, true)
+		default:
+			if cmd, ok := l.act.reviewKey(msg, pr); ok {
+				return l, cmd
+			}
 		}
 	}
 	var cmd tea.Cmd
@@ -162,7 +176,7 @@ func (d *PullRequestDetail) Title() string   { return fmt.Sprintf("!%d", d.pr.ID
 func (d *PullRequestDetail) Capturing() bool { return false }
 func (d *PullRequestDetail) View() string    { return d.vp.View() }
 func (d *PullRequestDetail) Help() []key.Binding {
-	return []key.Binding{keyOpen, keyCheckout, keyPRWorktree, keyCopy, keyUp, keyDown}
+	return []key.Binding{keyOpen, keyApprove, keyApproveComplete, keyAutoComplete, keyCheckout, keyPRWorktree, keyCopy, keyUp, keyDown}
 }
 
 func (d *PullRequestDetail) SetSize(w, h int) {
@@ -175,7 +189,17 @@ func (d *PullRequestDetail) SetSize(w, h int) {
 }
 
 func (d *PullRequestDetail) Update(msg tea.Msg) (Screen, tea.Cmd) {
+	if m, ok := msg.(pullRequestChangedMsg); ok {
+		if m.pr.ID == d.pr.ID {
+			d.pr = m.pr
+			d.vp.SetContent(ui.RenderPullRequest(d.pr, d.width, true))
+		}
+		return d, nil
+	}
 	if km, ok := msg.(tea.KeyPressMsg); ok {
+		if cmd, ok := d.act.reviewKey(km, d.pr); ok {
+			return d, cmd
+		}
 		switch {
 		case key.Matches(km, keyOpen):
 			return d, d.act.open(d.pr.URL)
@@ -190,4 +214,17 @@ func (d *PullRequestDetail) Update(msg tea.Msg) (Screen, tea.Cmd) {
 	var cmd tea.Cmd
 	d.vp, cmd = d.vp.Update(msg)
 	return d, cmd
+}
+
+// reviewKey runs the approve and auto-complete keys on pr, reporting whether msg was one.
+func (a *Actions) reviewKey(msg tea.KeyPressMsg, pr domain.PullRequest) (tea.Cmd, bool) {
+	switch {
+	case key.Matches(msg, keyApprove):
+		return a.approvePR(pr), true
+	case key.Matches(msg, keyApproveComplete):
+		return a.autoComplete(pr, true), true
+	case key.Matches(msg, keyAutoComplete):
+		return a.autoComplete(pr, false), true
+	}
+	return nil, false
 }

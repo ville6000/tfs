@@ -29,8 +29,9 @@ enter details • o open in browser • s set state • a assign to me • w wor
   reorder items and the new order is saved to the server. Ancestors of matches stay visible so the
   tree stays connected.
 - **Pull requests** — list with approval status, view details and reviewers, open, check out the
-  source branch or create a worktree for review, and create a PR for the current branch — on the
-  server (pushing the branch and linking its work item) or via the create-PR page.
+  source branch or create a worktree for review, approve, set auto-complete (with the merge type
+  the branch's policies allow), and create a PR for the current branch — on the server (pushing
+  the branch and linking its work item) or via the create-PR page.
 - **Builds** — recent runs of your build pipelines (classic and YAML) with live status, each
   build's stages, jobs and tasks with their errors, and task logs.
 - **Releases** — a dashboard of your classic release pipelines showing what is deployed on each
@@ -100,7 +101,7 @@ defined** scopes and grant only what you use:
 | Work Items — Read & write  | `wi …`, `board open` (Read is enough for list/show/tree)  |
 | Identity — Read            | finding pull requests assigned to your groups on the home screen |
 | Code — Read                | `pr …`                                                    |
-| Code — Read & write        | `pr create --submit`, `n` in the PR list                  |
+| Code — Read & write        | `pr create --submit`, `pr approve`, `pr autocomplete`, `n` `a` `A` `m` in the PR views |
 | Code — Read & write, Work Items — Read | linking the branch's work item to a new PR (`pr create --submit`, `n`) |
 | Build — Read               | `build …`                                                 |
 | Release — Read             | `release` dashboard, history, `release show`, `release approvals` |
@@ -141,8 +142,8 @@ The home screen lists, for the project:
   is running the section refreshes every 10 seconds.
 
 Move between sections with `tab` / `shift+tab`; the keys of the list each row comes from work
-there too, e.g. `c` checks out a pull request, `s` sets a work item's state and `a` approves a
-release. Finding reviews requested from your groups reads your group memberships, which needs
+there too, e.g. `c` checks out a pull request, `a` approves a pull request waiting for your review
+or a release, `m` sets your pull request to auto-complete and `s` sets a work item's state. Finding reviews requested from your groups reads your group memberships, which needs
 the Identity "Read" scope; without it, the screen says so and shows the reviews requested from
 you only. A section the token lacks the scope for shows the error and the rest still load.
 
@@ -215,6 +216,10 @@ tfs pr create --submit                       # create it: push, title from branc
 tfs pr create --submit --draft --title "Add reset endpoint" --description "Details"
 tfs pr create --submit --fill-commits        # the branch's commits as the description
 tfs pr create --submit --work-item 123 --work-item '#124'
+tfs pr approve 4567                          # vote approve, as yourself
+tfs pr approve 4567 --auto-complete          # and complete it once its policies pass
+tfs pr autocomplete 4567 --merge-strategy squash --delete-source-branch --complete-work-items
+tfs pr autocomplete 4567 --off
 ```
 
 `pr list` and `pr show`, like the home screen, mark an active pull request that cannot merge until
@@ -232,6 +237,21 @@ description is empty unless given; `--fill-commits` adds the branch's commits th
 the target branch as a Markdown list, cut short to fit the server's 4000-character limit. In the
 interactive `pr list`, press `n` to create a pull request for the current branch from a form
 with the same defaults; it offers to add the branch's commits to the description.
+
+`pr approve` votes approve as you, adding you as an optional reviewer when you are not one, as
+the web UI does. `pr autocomplete` sets the pull request to complete by itself once its required
+reviewers have approved and its other policies pass; `--auto-complete` on `pr approve` does both.
+The merge options start from what the pull request already has, changed by the flags given. The
+merge strategy (`merge`, `squash`, `rebase` or `semilinear`) must be one the target branch's
+"Limit merge types" policy allows, since auto-complete would otherwise get stuck; without
+`--merge-strategy` the pull request's own is kept if allowed, else the first allowed one is used.
+Both ask for confirmation unless `--yes` is given.
+
+In the pull request list, a pull request's detail and the home screen, press `a` to approve, `A`
+to approve and set auto-complete, and `m` to set auto-complete (or turn it off when it is on).
+`A` and `m` open a form to pick the merge type, from those the policies allow, and whether to
+delete the source branch and complete the linked work items. `pr show` and the detail say when
+auto-complete is on, who set it and how it merges.
 
 ### Builds
 

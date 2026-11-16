@@ -195,17 +195,20 @@ func (a *App) styled() bool {
 }
 
 func (a *App) actions() *tui.Actions {
+	// git runs without prompts: a password or passphrase prompt would fight the TUI for the
+	// terminal, so git fails with an error instead.
+	g := git.Git{NoPrompt: true}
 	return &tui.Actions{
 		Client: a.client,
 		Open:   browser.Open,
 		Worktree: func(ctx context.Context, w domain.WorkItem) (string, string, error) {
-			return a.workItemWorktree(ctx, w, "", "")
+			return a.workItemWorktree(ctx, g, w, "", "")
 		},
 		Branch: func(ctx context.Context, w domain.WorkItem) (string, error) {
-			return a.workItemBranch(ctx, w, "")
+			return a.workItemBranch(ctx, g, w, "")
 		},
 		CheckoutPR: func(ctx context.Context, pr domain.PullRequest, worktree bool) (string, error) {
-			return a.checkoutPullRequest(ctx, pr, worktree, "")
+			return a.checkoutPullRequest(ctx, g, pr, worktree, "")
 		},
 		Team:      a.team,
 		PreparePR: a.preparePullRequestForTUI,

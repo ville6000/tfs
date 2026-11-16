@@ -346,14 +346,11 @@ func (h *Home) apply(msg homeLoadedMsg) tea.Cmd {
 		h.fill(sectionReviews, rows, entries, msg.err, msg.prs.Note)
 		rows, entries = nil, nil
 		for _, p := range msg.prs.Created {
-			title := p.Title
-			if p.IsDraft {
-				title = "[draft] " + title
-			}
+			title, style := ui.OwnPullRequestTitle(p)
 			rows = append(rows, Row{
 				Key:    p.ID,
 				Cells:  []string{strconv.Itoa(p.ID), p.Repository, p.Approval.String(), p.TargetBranch, ui.FormatAge(p.Created, now), title},
-				Styles: []lipgloss.Style{ui.ID, ui.Accent, ui.ApprovalStyle(p.Approval), ui.Muted, ui.Muted, {}},
+				Styles: []lipgloss.Style{ui.ID, ui.Accent, ui.ApprovalStyle(p.Approval), ui.Muted, ui.Muted, style},
 			})
 			entries = append(entries, p)
 		}

@@ -30,7 +30,8 @@ stories, then release approvals and builds.
 
   Waiting for your review  active pull requests with you, or a group or team you belong to,
                            as a reviewer that has not voted yet (not drafts or your own)
-  Your pull requests       your active pull requests and their approval
+  Your pull requests       your active pull requests, their approval, and [conflicts] on
+                           those that cannot merge until you resolve conflicts
   Your user stories        open user stories assigned to you (not features, epics,
                            tasks or bugs)
   Release approvals        release approvals waiting for you or your groups

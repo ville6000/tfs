@@ -132,7 +132,8 @@ The home screen lists, for the project:
   (also through other groups), are a reviewer that has not voted yet. Drafts and your own pull
   requests are left out, and so is a group request once a teammate has voted for the group. The
   `FOR` column says whether the review was asked of you or of one of your groups.
-- **Your pull requests** with their approval status.
+- **Your pull requests** with their approval status. One that cannot merge into its target until
+  you resolve conflicts is marked `[conflicts]`, in red.
 - **Your user stories** — open user stories assigned to you (Product Backlog Items in Scrum,
   Requirements in CMMI); features, epics, tasks and bugs are left out.
 - **Release approvals** waiting for you or your groups (limited by `releasePipelines`).

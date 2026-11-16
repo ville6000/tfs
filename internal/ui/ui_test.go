@@ -79,3 +79,21 @@ func TestGroupName(t *testing.T) {
 		}
 	}
 }
+
+func TestOwnPullRequestTitle(t *testing.T) {
+	for _, c := range []struct {
+		pr   domain.PullRequest
+		want string
+		red  bool
+	}{
+		{domain.PullRequest{Title: "Fix", MergeStatus: "succeeded"}, "Fix", false},
+		{domain.PullRequest{Title: "Fix", MergeStatus: "queued", IsDraft: true}, "[draft] Fix", false},
+		{domain.PullRequest{Title: "Fix", MergeStatus: "conflicts"}, "[conflicts] Fix", true},
+		{domain.PullRequest{Title: "Fix", MergeStatus: "Conflicts", IsDraft: true}, "[draft] [conflicts] Fix", true},
+	} {
+		title, style := OwnPullRequestTitle(c.pr)
+		if red := style.GetForeground() == Danger.GetForeground(); title != c.want || red != c.red {
+			t.Errorf("%+v: %q, red %v", c.pr, title, red)
+		}
+	}
+}

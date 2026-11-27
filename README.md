@@ -373,7 +373,8 @@ tfs config get defaultProject
 tfs config set defaultProject Portal         # project file inside a repo, else global
 tfs config set apiVersion 5.0 --global
 tfs config unset branchTemplate
-tfs config wizard
+tfs config wizard                            # in a repo: asks whether to set up the repo or global
+tfs config wizard --local                    # the current repository's project config
 ```
 
 **Global config**: `$XDG_CONFIG_HOME/tfs/config.json` (when set to an absolute path) or
@@ -382,6 +383,11 @@ tfs config wizard
 **Project config**: inside a git repository, `.config/tfs.json` or `.tfs.json` at the
 repository root is merged over the global config field by field. Writes go there by default;
 pass `--global` to write to the global file. Config files are written with mode `0600`.
+
+Inside a repository, `tfs config wizard` first asks whether to configure the repository or the
+global config, and preselects the repository once a global config exists. For the repository it
+starts with empty fields that show the global values greyed out, and saves only what you fill
+in, so the file holds just the overrides and can be committed for everyone on the project.
 
 | Key                | Default               | Description                                                   |
 |--------------------|-----------------------|---------------------------------------------------------------|

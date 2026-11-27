@@ -33,6 +33,10 @@ type App struct {
 
 	cfg    *config.Config
 	client *ado.Client
+
+	// askWizardScope and runWizard show the config wizard's forms; tests replace them.
+	askWizardScope func(project *bool, projectPath, globalPath string) error
+	runWizard      func(*tui.WizardValues, tui.WizardOptions) error
 }
 
 // Execute runs the CLI and returns the process exit code.

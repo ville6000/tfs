@@ -3,11 +3,13 @@ package cli
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/ville6000/tfs/internal/config"
+	"github.com/ville6000/tfs/internal/keychain"
 	"github.com/ville6000/tfs/internal/output"
 	"github.com/ville6000/tfs/internal/tui"
 	"github.com/ville6000/tfs/internal/ui"
@@ -189,59 +191,123 @@ func (a *App) configUnsetCmd() *cobra.Command {
 }
 
 func (a *App) configWizardCmd() *cobra.Command {
-	var global bool
+	var global, project bool
 	cmd := &cobra.Command{
 		Use:   "wizard",
-		Short: "Set up the configuration interactively",
-		Args:  cobra.NoArgs,
+		Short: "Set up the global or the repository's configuration interactively",
+		Long: `Set up the configuration interactively.
+
+Inside a git repository the wizard first asks whether to configure this repository or the
+global config; --local and --global answer for it. A repository config holds only the values
+you fill in, so everything else keeps following the global config, and it can be committed to
+share the settings with everyone working on the repository. userIdentity is always global.`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, err := a.config()
 			if err != nil {
 				return err
 			}
-			v := tui.WizardValues{
-				CollectionURL:  cfg.String("collectionUrl"),
-				DefaultProject: cfg.String("defaultProject"),
-				APIVersion:     cfg.String("apiVersion"),
-				UserIdentity:   cfg.String("userIdentity"),
-				BranchTemplate: cfg.String("branchTemplate"),
-				SaveToProject:  cfg.ProjectPath != "",
-			}
-			inRepo := cfg.ProjectRoot != "" && !global
-			projectPath, _ := cfg.TargetPath("defaultProject", config.ScopeAuto)
-			if err := tui.RunWizard(&v, inRepo, projectPath, cfg.GlobalPath); err != nil {
-				return err
-			}
-			scope := config.ScopeGlobal
-			if inRepo && v.SaveToProject {
-				scope = config.ScopeProject
-			}
-			written := map[string]bool{}
-			for _, kv := range [][2]string{
-				{"collectionUrl", v.CollectionURL}, {"defaultProject", v.DefaultProject},
-				{"apiVersion", v.APIVersion}, {"branchTemplate", v.BranchTemplate}, {"userIdentity", v.UserIdentity},
-			} {
-				// Don't persist values that merely echo a built-in default.
-				if k, _ := config.LookupKey(kv[0]); k.Default != "" && kv[1] == k.Default {
-					if cur, _ := cfg.Get(kv[0]); cur.Source == "default" {
-						continue
+			scope := toScope(global, project)
+			if scope == config.ScopeAuto {
+				scope = config.ScopeGlobal
+				if cfg.ProjectRoot != "" {
+					// Once the global config is set up, running the wizard in a repository is most
+					// likely about that repository.
+					toProject := cfg.ProjectPath != "" || cfg.Global.CollectionURL != ""
+					projectPath, _ := cfg.TargetPath("defaultProject", config.ScopeProject)
+					ask := a.askWizardScope
+					if ask == nil {
+						ask = tui.AskWizardScope
+					}
+					if err := ask(&toProject, projectPath, cfg.GlobalPath); err != nil {
+						return err
+					}
+					if toProject {
+						scope = config.ScopeProject
 					}
 				}
-				path, err := cfg.Set(kv[0], kv[1], scope)
-				if err != nil {
-					return fmt.Errorf("%s: %w", kv[0], err)
+			}
+			path, err := cfg.TargetPath("defaultProject", scope)
+			if err != nil {
+				return err
+			}
+
+			var v tui.WizardValues
+			opts := tui.WizardOptions{Path: path, Project: path != cfg.GlobalPath}
+			keys := []struct {
+				name            string
+				value, fallback *string
+			}{
+				{"collectionUrl", &v.CollectionURL, &opts.Fallback.CollectionURL},
+				{"defaultProject", &v.DefaultProject, &opts.Fallback.DefaultProject},
+				{"apiVersion", &v.APIVersion, &opts.Fallback.APIVersion},
+				{"branchTemplate", &v.BranchTemplate, &opts.Fallback.BranchTemplate},
+				{"userIdentity", &v.UserIdentity, &opts.Fallback.UserIdentity},
+			}
+			before := make([]string, len(keys))
+			for i, k := range keys {
+				if before[i], err = cfg.Own(k.name, scope); err != nil {
+					return err
 				}
-				written[path] = true
+				fallback, err := cfg.Inherited(k.name, scope)
+				if err != nil {
+					return err
+				}
+				*k.value, *k.fallback = before[i], fallback.Value
 			}
-			for p := range written {
+			run := a.runWizard
+			if run == nil {
+				run = tui.RunWizard
+			}
+			if err := run(&v, opts); err != nil {
+				return err
+			}
+
+			// Write only what changed, so a repository config keeps just its overrides.
+			var written []string
+			for i, k := range keys {
+				after := strings.TrimSpace(*k.value)
+				if after == before[i] || (opts.Project && k.name == "userIdentity") {
+					continue
+				}
+				p, err := cfg.Set(k.name, after, scope)
+				if err != nil {
+					return fmt.Errorf("%s: %w", k.name, err)
+				}
+				if !slices.Contains(written, p) {
+					written = append(written, p)
+				}
+			}
+			if len(written) == 0 {
+				a.printf("No changes to %s\n", path)
+			}
+			for _, p := range written {
 				a.printf("Saved %s\n", p)
+				if p != cfg.GlobalPath {
+					a.printf("Commit it to share these settings with everyone working on the repository.\n")
+				}
 			}
-			if os.Getenv(config.EnvPAT) == "" {
+			if needsToken(cfg) {
 				a.printf("\nNext: create a personal access token (scopes: Work Items read & write, Code read)\nand store it in the Keychain:  tfs auth login  (or export %s=<token>)\n", config.EnvPAT)
 			}
 			return nil
 		},
 	}
-	cmd.Flags().BoolVarP(&global, "global", "g", false, "save everything to the global config")
+	cmd.Flags().BoolVarP(&global, "global", "g", false, "configure the global config")
+	cmd.Flags().BoolVar(&project, "local", false, "configure the project config of the current repository")
+	cmd.MarkFlagsMutuallyExclusive("global", "local")
 	return cmd
+}
+
+// needsToken reports whether no personal access token is available for the configured server.
+func needsToken(cfg *config.Config) bool {
+	if os.Getenv(config.EnvPAT) != "" {
+		return false
+	}
+	origin, err := config.Origin(cfg.String("collectionUrl"))
+	if err != nil {
+		return true
+	}
+	ok, err := keychain.Exists(origin)
+	return err != nil || !ok
 }

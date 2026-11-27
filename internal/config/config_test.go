@@ -99,6 +99,55 @@ func TestLayeringAndWrites(t *testing.T) {
 	}
 }
 
+func TestOwnAndInherited(t *testing.T) {
+	home, _, sub := setup(t)
+	c, err := LoadFrom(sub, home, envMap(map[string]string{EnvCollection: "https://env.example.com/Col"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, kv := range [][2]string{{"collectionUrl", "https://global.example.com/Col"}, {"defaultProject", "Global"}} {
+		if _, err := c.Set(kv[0], kv[1], ScopeGlobal); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := c.Set("defaultProject", "Repo", ScopeProject); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		key        string
+		scope      Scope
+		own, value string
+		source     string
+	}{
+		{"defaultProject", ScopeProject, "Repo", "Global", c.GlobalPath},
+		{"defaultProject", ScopeGlobal, "Global", "", ""},
+		// the environment override is never what a file falls back to
+		{"collectionUrl", ScopeProject, "", "https://global.example.com/Col", c.GlobalPath},
+		{"apiVersion", ScopeProject, "", DefaultAPIVersion, "default"},
+		{"apiVersion", ScopeGlobal, "", DefaultAPIVersion, "default"},
+		// userIdentity is global only, so it never inherits from the global file
+		{"userIdentity", ScopeProject, "", "", ""},
+	} {
+		own, err := c.Own(tc.key, tc.scope)
+		if err != nil || own != tc.own {
+			t.Errorf("Own(%s, %d) = %q, %v; want %q", tc.key, tc.scope, own, err, tc.own)
+		}
+		v, err := c.Inherited(tc.key, tc.scope)
+		if err != nil || v.Value != tc.value || v.Source != tc.source {
+			t.Errorf("Inherited(%s, %d) = %+v, %v; want %q from %q", tc.key, tc.scope, v, err, tc.value, tc.source)
+		}
+	}
+
+	outside, err := LoadFrom(home, home, envMap(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := outside.Own("defaultProject", ScopeProject); err == nil {
+		t.Error("Own with the project scope outside a repository should fail")
+	}
+}
+
 func TestProjectUserIdentityIgnored(t *testing.T) {
 	home, repo, _ := setup(t)
 	if err := os.WriteFile(filepath.Join(repo, ".tfs.json"), []byte(`{"UserIdentity":"x","DefaultProject":"P"}`), 0o600); err != nil {

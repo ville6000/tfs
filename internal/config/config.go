@@ -227,9 +227,54 @@ func (c *Config) TargetPath(name string, scope Scope) (string, error) {
 	return ProjectCandidates(c.ProjectRoot)[0], nil
 }
 
+// Own returns what the file a write with the given scope would modify sets a key to, or "" when
+// that file doesn't set it.
+func (c *Config) Own(name string, scope Scope) (string, error) {
+	k, f, _, err := c.file(name, scope)
+	if err != nil {
+		return "", err
+	}
+	return k.get(f), nil
+}
+
+// Inherited returns what a key falls back to when the file a write with the given scope would
+// modify doesn't set it: the global value or else the built-in default under a project file, the
+// built-in default under the global file. Environment overrides are left out.
+func (c *Config) Inherited(name string, scope Scope) (Value, error) {
+	k, _, path, err := c.file(name, scope)
+	if err != nil {
+		return Value{}, err
+	}
+	if path != c.GlobalPath {
+		if v := k.get(&c.Global); v != "" {
+			return Value{v, c.GlobalPath}, nil
+		}
+	}
+	if k.Default != "" {
+		return Value{k.Default, "default"}, nil
+	}
+	return Value{}, nil
+}
+
+// file returns the key, the loaded file a write with the given scope would modify, and its path.
+func (c *Config) file(name string, scope Scope) (Key, *File, string, error) {
+	k, err := LookupKey(name)
+	if err != nil {
+		return Key{}, nil, "", err
+	}
+	path, err := c.TargetPath(name, scope)
+	if err != nil {
+		return Key{}, nil, "", err
+	}
+	if path == c.GlobalPath {
+		return k, &c.Global, path, nil
+	}
+	return k, &c.Project, path, nil
+}
+
 // Set writes a key and returns the path written. An empty value removes the key.
 func (c *Config) Set(name, value string, scope Scope) (string, error) {
-	k, err := LookupKey(name)
+	k, f, path, err := c.file(name, scope)
 	if err != nil {
 		return "", err
 	}
@@ -239,13 +284,7 @@ func (c *Config) Set(name, value string, scope Scope) (string, error) {
 			return "", err
 		}
 	}
-	path, err := c.TargetPath(name, scope)
-	if err != nil {
-		return "", err
-	}
-	f := &c.Global
-	if path != c.GlobalPath {
-		f = &c.Project
+	if f == &c.Project {
 		c.ProjectPath = path
 	}
 	k.set(f, value)

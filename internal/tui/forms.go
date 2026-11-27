@@ -3,6 +3,7 @@ package tui
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -22,54 +23,95 @@ func runForm(f *huh.Form) error {
 	return err
 }
 
-// WizardValues are the values edited by the config wizard.
+// WizardValues are the values edited by the config wizard: what the file being written sets each
+// key to, or "" for a key it leaves out.
 type WizardValues struct {
 	CollectionURL  string
 	DefaultProject string
 	APIVersion     string
 	UserIdentity   string
 	BranchTemplate string
-	SaveToProject  bool
 }
 
-// RunWizard edits v in place. inRepo enables the "save to project" choice.
-func RunWizard(v *WizardValues, inRepo bool, projectPath, globalPath string) error {
+// WizardOptions configure the config wizard.
+type WizardOptions struct {
+	// Path is the config file the wizard writes.
+	Path string
+	// Project is set when Path is a repository's project config. userIdentity is global only, so
+	// it isn't asked then.
+	Project bool
+	// Fallback is what each key falls back to when left empty: the global value or the built-in
+	// default. Fields show it as their placeholder.
+	Fallback WizardValues
+}
+
+// AskWizardScope asks whether the config wizard writes the repository's project config or the
+// global one. project holds the preselected answer and receives the choice.
+func AskWizardScope(project *bool, projectPath, globalPath string) error {
+	return runForm(huh.NewForm(huh.NewGroup(
+		huh.NewSelect[bool]().Title("Configure").
+			Description("A repository config holds only what differs from the global one, and can be committed").
+			Options(
+				huh.NewOption("This repository  "+shortPath(projectPath), true),
+				huh.NewOption("Global  "+shortPath(globalPath), false),
+			).
+			Value(project),
+	)))
+}
+
+// RunWizard edits v in place.
+func RunWizard(v *WizardValues, opts WizardOptions) error {
+	fb := opts.Fallback
 	fields := []huh.Field{
 		huh.NewInput().Title("Collection URL").
 			Description("e.g. https://ado.example.com/DefaultCollection").
-			Value(&v.CollectionURL).Validate(config.ValidateCollectionURL),
+			Placeholder(fb.CollectionURL).Value(&v.CollectionURL).
+			Validate(orFallback(fb.CollectionURL, config.ValidateCollectionURL)),
 		huh.NewInput().Title("Default project").Description("Used when --project is omitted (optional)").
-			Value(&v.DefaultProject),
+			Placeholder(fb.DefaultProject).Value(&v.DefaultProject),
 		huh.NewInput().Title("API version").Description("6.0 works with Azure DevOps Server 2020+; use 5.0 for 2019").
-			Value(&v.APIVersion).Validate(func(s string) error {
-			if strings.TrimSpace(s) == "" {
-				return errors.New("required")
-			}
-			return nil
-		}),
+			Placeholder(fb.APIVersion).Value(&v.APIVersion).
+			Validate(orFallback(fb.APIVersion, func(string) error { return nil })),
 		huh.NewInput().Title("Branch template for `wi worktree`").Description("Placeholders: {id} {slug} {type}").
-			Value(&v.BranchTemplate).Validate(func(s string) error {
-			if !strings.Contains(s, "{id}") {
-				return errors.New("must contain {id}")
-			}
-			return nil
-		}),
-		huh.NewInput().Title("Your identity for @me (optional)").
-			Description("Unique name or email; leave empty to ask the server").Value(&v.UserIdentity),
+			Placeholder(fb.BranchTemplate).Value(&v.BranchTemplate).
+			Validate(orFallback(fb.BranchTemplate, func(s string) error {
+				if !strings.Contains(s, "{id}") {
+					return errors.New("must contain {id}")
+				}
+				return nil
+			})),
 	}
-	if inRepo {
-		fields = append(fields, huh.NewSelect[bool]().Title("Save settings to").
-			Description("userIdentity is always saved globally").
-			Options(
-				huh.NewOption("Global  "+shortenHome(globalPath), false),
-				huh.NewOption("This repository  "+shortenHome(projectPath), true),
-			).
-			Value(&v.SaveToProject))
+	intro := "Leave a field empty to use its greyed-out default."
+	if opts.Project {
+		intro = "Fill in only what this repository overrides. Empty fields use the greyed-out global value or default."
+	} else {
+		fields = append(fields, huh.NewInput().Title("Your identity for @me (optional)").
+			Description("Unique name or email; leave empty to ask the server").Value(&v.UserIdentity))
 	}
-	return runForm(huh.NewForm(huh.NewGroup(fields...)))
+	return runForm(huh.NewForm(huh.NewGroup(fields...).Title("Saving to " + shortPath(opts.Path)).Description(intro)))
 }
 
-func shortenHome(p string) string {
+// orFallback validates a non-empty value, and accepts an empty one when there is a fallback.
+func orFallback(fallback string, validate func(string) error) func(string) error {
+	return func(s string) error {
+		if s = strings.TrimSpace(s); s != "" {
+			return validate(s)
+		}
+		if fallback == "" {
+			return errors.New("required")
+		}
+		return nil
+	}
+}
+
+// shortPath shows p relative to the working directory when it is inside it, else with the home
+// directory as ~.
+func shortPath(p string) string {
+	if cwd, err := os.Getwd(); err == nil {
+		if rel, err := filepath.Rel(cwd, p); err == nil && filepath.IsLocal(rel) {
+			return rel
+		}
+	}
 	if home, err := os.UserHomeDir(); err == nil && home != "" && strings.HasPrefix(p, home+string(os.PathSeparator)) {
 		return "~" + p[len(home):]
 	}
